@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "vitest --run --coverage"
+    "test": "vitest --run --coverage",
+    "build:pages": "BASE_PATH=/Modern-LaTex-Editor/ npm run build",
+    "preview:pages": "node scripts/preview-pages.cjs"
   },
   "dependencies": {
     "lucide-react": "^0.453.0",
