@@ -1,3 +1,50 @@
+@import url('https://fonts.googleapis.com/css2?family=Source+Code+Pro:ital,wght@0,400;0,700;1,400;1,700&family=Source+Serif+Pro:ital,wght@0,400;0,700;1,400;1,700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+.latex-render-visual-editor {
+    /* Closer to default LaTeX article (10pt Computer Modern-ish) */
+    font-family: 'KaTeX_Main', 'Latin Modern Roman', 'Computer Modern', 'Source Serif Pro', serif;
+    font-size: 10pt;
+    line-height: 1.2;
+    font-kerning: normal;
+    font-variant-ligatures: common-ligatures;
+}
+
+.latex-render-visual-editor .math-inline,
+.latex-render-visual-editor .math-block {
+    font-family: 'KaTeX_Main', 'Source Serif Pro', serif;
+}
+
+.latex-render-visual-editor pre,
+.latex-render-visual-editor code {
+    font-family: 'Source Code Pro', monospace;
+}
+
+.latex-page {
+    width: min(8.5in, 100%);
+    min-height: 11in;
+    background: white;
+    border: 1px solid rgb(226 232 240);
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.06);
+    padding: 1in;
+}
+
+/* Ensure KaTeX layer displays correctly even inside .prose */
+.latex-render-visual-editor .katex {
+    font-size: 1em;
+    line-height: 1.2;
+}
+.latex-render-visual-editor .katex-mathml {
+    /* KaTeX normally hides MathML via CSS; keep it hidden */
+    position: absolute;
+    clip: rect(1px, 1px, 1px, 1px);
+    clip-path: inset(50%);
+    height: 1px;
+    width: 1px;
+    overflow: hidden;
+    padding: 0;
+    border: 0;
+}

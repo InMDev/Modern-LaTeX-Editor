@@ -76,14 +76,22 @@ const latexToHtml = (latex) => {
   // PROTECT BLOCKS
   content = content
     .replace(/\\begin\{verbatim\}([\s\S]*?)\\end\{verbatim\}/g, (_, c) => protect(`<pre class="bg-slate-100 p-3 rounded font-mono text-sm my-4 border border-slate-200 overflow-x-auto" contenteditable="false">${c}</pre>`))
+    // Checkbox task lists: protect before inline-math handling so the `$\\square$` marker isn't converted into a math placeholder.
+    .replace(/\\begin\{itemize\}\s*\\item\[\$\\square\$\]([\s\S]*?)\\end\{itemize\}/g, (_, i) => {
+      const list = `<ul style="list-style-type: none;">${i
+        .split('\\item[$\\square$]')
+        .join('</li><li><input type="checkbox" disabled> ')
+        .replace(/^<\/li>/, '')}</li></ul>`;
+      return protect(list);
+    })
     .replace(/\\\[([\s\S]*?)\\\]/g, (_, m) => {
-        return protect(`<div class="math-block my-4 text-center cursor-pointer hover:bg-blue-50 transition-colors rounded py-2" contenteditable="false" data-latex="${encodeURIComponent(m)}">${renderMath(m, true)}</div>`);
+      return protect(`<div class="math-block not-prose my-4 text-center cursor-pointer hover:bg-blue-50 transition-colors rounded py-2" contenteditable="false" data-latex="${encodeURIComponent(m)}">${renderMath(m, true)}</div>`);
     })
     .replace(/\$\$([\s\S]*?)\$\$/g, (_, m) => {
-        return protect(`<div class="math-block my-4 text-center cursor-pointer hover:bg-blue-50 transition-colors rounded py-2" contenteditable="false" data-latex="${encodeURIComponent(m)}">${renderMath(m, true)}</div>`);
+      return protect(`<div class="math-block not-prose my-4 text-center cursor-pointer hover:bg-blue-50 transition-colors rounded py-2" contenteditable="false" data-latex="${encodeURIComponent(m)}">${renderMath(m, true)}</div>`);
     })
     .replace(/(?<!\\)\$([^$]+?)\$/g, (_, m) => {
-        return protect(`<span class="math-inline px-1 cursor-pointer hover:bg-blue-50 transition-colors rounded" contenteditable="false" data-latex="${encodeURIComponent(m)}">${renderMath(m, false)}</span>`);
+      return protect(`<span class="math-inline not-prose px-1 cursor-pointer hover:bg-blue-50 transition-colors rounded" contenteditable="false" data-latex="${encodeURIComponent(m)}">${renderMath(m, false)}</span>`);
     })
     .replace(/\\texttt\{([\s\S]*?)\}/g, (_, c) => protect(`<code class="bg-slate-100 px-1.5 py-0.5 rounded text-sm font-mono text-pink-600">${c}</code>`));
 
@@ -96,11 +104,17 @@ const latexToHtml = (latex) => {
     .replace(/\\textit\{([\s\S]*?)\}/g, '<i>$1</i>')
     .replace(/\\underline\{([\s\S]*?)\}/g, '<u>$1</u>')
     .replace(/\\textsf\{([\s\S]*?)\}/g, '<span style="font-family: sans-serif">$1</span>')
-    .replace(/\\tiny\s+([\s\S]*?)(?=\\|\n|$)/g, '<span style="font-size: 10px">$1</span>')
-    .replace(/\\small\s+([\s\S]*?)(?=\\|\n|$)/g, '<span style="font-size: 13px">$1</span>')
-    .replace(/\\large\s+([\s\S]*?)(?=\\|\n|$)/g, '<span style="font-size: 18px">$1</span>')
-    .replace(/\\Large\s+([\s\S]*?)(?=\\|\n|$)/g, '<span style="font-size: 24px">$1</span>')
-    .replace(/\\huge\s+([\s\S]*?)(?=\\|\n|$)/g, '<span style="font-size: 32px">$1</span>')
+    // Roughly match default LaTeX font sizes (article 10pt)
+    .replace(/\\tiny\s+([\s\S]*?)(?=\\|\n|$)/g, '<span style="font-size: 5pt">$1</span>')
+    .replace(/\\scriptsize\s+([\s\S]*?)(?=\\|\n|$)/g, '<span style="font-size: 7pt">$1</span>')
+    .replace(/\\footnotesize\s+([\s\S]*?)(?=\\|\n|$)/g, '<span style="font-size: 8pt">$1</span>')
+    .replace(/\\small\s+([\s\S]*?)(?=\\|\n|$)/g, '<span style="font-size: 9pt">$1</span>')
+    .replace(/\\normalsize\s+([\s\S]*?)(?=\\|\n|$)/g, '<span style="font-size: 10pt">$1</span>')
+    .replace(/\\large\s+([\s\S]*?)(?=\\|\n|$)/g, '<span style="font-size: 12pt">$1</span>')
+    .replace(/\\Large\s+([\s\S]*?)(?=\\|\n|$)/g, '<span style="font-size: 14.4pt">$1</span>')
+    .replace(/\\LARGE\s+([\s\S]*?)(?=\\|\n|$)/g, '<span style="font-size: 17.28pt">$1</span>')
+    .replace(/\\huge\s+([\s\S]*?)(?=\\|\n|$)/g, '<span style="font-size: 20.74pt">$1</span>')
+    .replace(/\\Huge\s+([\s\S]*?)(?=\\|\n|$)/g, '<span style="font-size: 24.88pt">$1</span>')
     .replace(/\\textcolor\{([a-zA-Z]+|#[0-9a-fA-F]{6})\}\{([\s\S]*?)\}/g, '<span style="color: $1">$2</span>')
     .replace(/\\colorbox\{([a-zA-Z]+|#[0-9a-fA-F]{6})\}\{([\s\S]*?)\}/g, '<span style="background-color: $1">$2</span>')
     .replace(/\\begin\{center\}([\s\S]*?)\\end\{center\}/g, '<div style="text-align: center">$1</div>')
@@ -109,7 +123,6 @@ const latexToHtml = (latex) => {
     .replace(/\\href\{([\s\S]*?)\}\{([\s\S]*?)\}/g, '<a href="$1">$2</a>')
     .replace(/\\includegraphics\[.*?\]\{([\s\S]*?)\}/g, '<img src="$1" style="max-width:100%" />')
     .replace(/\\includegraphics\{([\s\S]*?)\}/g, '<img src="$1" style="max-width:100%" />')
-    .replace(/\\begin\{itemize\}\s*\\item\[\$\\square\$\]([\s\S]*?)\\end\{itemize\}/g, (_, i) => `<ul style="list-style-type: none;">${i.split('\\item[$\\square$]').join('</li><li><input type="checkbox" disabled> ').replace(/^<\/li>/, '')}</li></ul>`)
     .replace(/\\begin\{itemize\}([\s\S]*?)\\end\{itemize\}/g, (_, i) => `<ul>${i.split('\\item').filter(t=>t.trim()).map(t=>`<li>${t.trim()}</li>`).join('')}</ul>`)
     .replace(/\\begin\{enumerate\}([\s\S]*?)\\end\{enumerate\}/g, (_, i) => `<ol>${i.split('\\item').filter(t=>t.trim()).map(t=>`<li>${t.trim()}</li>`).join('')}</ol>`);
 
@@ -129,8 +142,13 @@ const htmlToLatex = (html) => {
   const tempDiv = document.createElement('div');
   tempDiv.innerHTML = html;
 
-  const getStyle = (node, prop) => node.style ? node.style[prop] : '';
-  const rgbToHex = (rgb) => rgb;
+  const getStyle = (node, prop) => node.style[prop];
+  const rgbToHex = (color) => {
+    const rgb = color.trim().match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+    if (!rgb) return color;
+    const toHex = (n) => Math.max(0, Math.min(255, Number(n) || 0)).toString(16).padStart(2, '0');
+    return `#${toHex(rgb[1])}${toHex(rgb[2])}${toHex(rgb[3])}`;
+  };
 
   const traverse = (node) => {
     if (node.nodeType === 3) {
@@ -169,8 +187,16 @@ const htmlToLatex = (html) => {
       if (fontFamily && fontFamily.includes('sans')) { prefix += `\\textsf{`; suffix = `}${suffix}`; }
       if (fontSize) {
           const s = parseInt(fontSize);
-          if (s<=10) prefix += `\\tiny `; else if (s<=13) prefix += `\\small `; 
-          else if (s>=32) prefix += `\\huge `; else if (s>=24) prefix += `\\Large `; else if (s>=18) prefix += `\\large `;
+          if (s <= 6) prefix += `\\tiny `;
+          else if (s <= 7) prefix += `\\scriptsize `;
+          else if (s <= 8) prefix += `\\footnotesize `;
+          else if (s <= 9) prefix += `\\small `;
+          else if (s >= 24) prefix += `\\Huge `;
+          else if (s >= 20) prefix += `\\huge `;
+          else if (s >= 17) prefix += `\\LARGE `;
+          else if (s >= 14) prefix += `\\Large `;
+          else if (s >= 12) prefix += `\\large `;
+          else prefix += `\\normalsize `;
       }
 
       switch (tagName) {
@@ -189,7 +215,8 @@ const htmlToLatex = (html) => {
             const isCheck = node.querySelector('input[type="checkbox"]');
             return `  \\item${isCheck ? '[$\\square$] ' : ' '}${childContent.replace(/^\s*/, '')}\n`;
         case 'br': 
-          // Ignore auto-inserted <br> from contentEditable; avoid injecting \\\n+            return '';
+          // Ignore auto-inserted <br> from contentEditable; avoid injecting \\.
+          return '';
         case 'div': case 'p': return `\n\n${childContent}\n\n`;
         default: return prefix + childContent + suffix;
       }

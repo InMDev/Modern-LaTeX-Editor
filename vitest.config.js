@@ -10,11 +10,12 @@ export default defineConfig({
       all: true,
       include: ['src/**/*.js', 'src/**/*.jsx'],
       exclude: ['src/App.jsx', 'src/main.jsx'],
-      // Set realistic project-wide coverage targets. Individual files may exceed these.
-      lines: 85,
-      functions: 85,
-      branches: 75,
-      statements: 85,
+      thresholds: {
+        lines: 100,
+        functions: 100,
+        branches: 100,
+        statements: 100,
+      },
     },
   },
 });

@@ -23,6 +23,7 @@ import {
   summarizeLatexLog,
   compileWithWasmLatex,
 } from './lib/latex';
+import { sanitizeEditorHtml, maybeSanitizeEditorHtml } from './lib/sanitize';
 
 // --- ENV FLAGS ---
 // Enable when the env var is the string 'true'.
@@ -36,8 +37,10 @@ export default function LiveLatexEditor() {
   const visualEditorRef = useRef(null);
   const lastSource = useRef(null); 
   const [katexLoaded, setKatexLoaded] = useState(false);
+  const [katexLoadError, setKatexLoadError] = useState('');
   const [isMathActive, setIsMathActive] = useState(false);
   const [activeMathInput, setActiveMathInput] = useState(null);
+  const [visualZoom, setVisualZoom] = useState(1);
   const [exporting, setExporting] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
   const [logLoading, setLogLoading] = useState(false);
@@ -46,26 +49,147 @@ export default function LiveLatexEditor() {
   const [compileSummary, setCompileSummary] = useState('');
   const lintTimer = useRef(null);
   const lintReqId = useRef(0);
+  const katexLinkRef = useRef(null);
+  const katexScriptRef = useRef(null);
+  const katexLinkInserted = useRef(false);
+  const katexScriptInserted = useRef(false);
+
+  const focusMathInput = (el) => {
+    if (!el) return;
+    try {
+      el.focus();
+      const len = (el.value || '').length;
+      if (typeof el.setSelectionRange === 'function') el.setSelectionRange(len, len);
+      else if (typeof el.selectionStart === 'number') el.selectionStart = el.selectionEnd = len;
+    } catch { /* ignore */ }
+  };
 
   useEffect(() => {
-    const link = document.createElement("link");
-    link.href = "https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css";
-    link.rel = "stylesheet";
-    document.head.appendChild(link);
+    if (typeof window !== 'undefined' && window.katex) {
+      setKatexLoaded(true);
+      return;
+    }
 
-    const script = document.createElement("script");
-    script.src = "https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js";
-    script.onload = () => {
-        setKatexLoaded(true);
-        setHtmlContent(prev => prev + " "); 
+    // Avoid duplicate injection (HMR / remount)
+    katexLinkInserted.current = false;
+    katexScriptInserted.current = false;
+
+    const base = (import.meta.env.BASE_URL || '/').replace(/\/?$/, '/');
+    // Prefer CDN first for reliability (local path only when assets are shipped)
+    const cssCandidates = [
+      'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css',
+      'https://unpkg.com/katex@0.16.9/dist/katex.min.css',
+      `${base}katex/katex.min.css`,
+    ];
+    const jsCandidates = [
+      'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js',
+      'https://unpkg.com/katex@0.16.9/dist/katex.min.js',
+      `${base}katex/katex.min.js`,
+    ];
+
+    const loadCssWithFallback = (linkEl, urls) => {
+      return new Promise((resolve, reject) => {
+        let idx = 0;
+        const tryNext = () => {
+          if (idx >= urls.length) {
+            reject(new Error('All KaTeX CSS sources failed to load.'));
+            return;
+          }
+          const url = urls[idx++];
+          linkEl.href = url;
+        };
+        const onLoad = () => resolve();
+        const onError = () => tryNext();
+        linkEl.addEventListener('load', onLoad, { once: true });
+        linkEl.addEventListener('error', onError);
+        tryNext();
+      });
     };
-    document.head.appendChild(script);
 
+    const loadScriptWithFallback = (scriptEl, urls) => {
+      return new Promise((resolve, reject) => {
+        let idx = 0;
+        const tryNext = () => {
+          if (idx >= urls.length) {
+            reject(new Error('All KaTeX JS sources failed to load.'));
+            return;
+          }
+          const url = urls[idx++];
+          scriptEl.src = url;
+        };
+        const onLoad = () => resolve();
+        const onError = () => tryNext();
+        scriptEl.addEventListener('load', onLoad, { once: true });
+        scriptEl.addEventListener('error', onError);
+        tryNext();
+      });
+    };
+
+    const existingLink = document.querySelector('link[data-katex-loader="true"]');
+    if (existingLink) {
+      // @ts-ignore
+      katexLinkRef.current = existingLink;
+    } else {
+      const link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.dataset.katexLoader = 'true';
+      katexLinkRef.current = link;
+      document.head.appendChild(link);
+      katexLinkInserted.current = true;
+    }
+
+    const existingScript = document.querySelector('script[data-katex-loader="true"]');
+    if (existingScript) {
+      // @ts-ignore
+      katexScriptRef.current = existingScript;
+      // If it already loaded, window.katex should exist by now; otherwise wait.
+      const checkLoaded = () => {
+        if (typeof window !== 'undefined' && window.katex) setKatexLoaded(true);
+      };
+      existingScript.addEventListener('load', checkLoaded, { once: true });
+      checkLoaded();
+    } else {
+      const script = document.createElement("script");
+      script.dataset.katexLoader = 'true';
+      script.defer = true;
+      katexScriptRef.current = script;
+      document.head.appendChild(script);
+      katexScriptInserted.current = true;
+    }
+
+    let canceled = false;
+    (async () => {
+      try {
+        setKatexLoadError('');
+        if (katexLinkRef.current) await loadCssWithFallback(katexLinkRef.current, cssCandidates);
+        if (katexScriptRef.current) await loadScriptWithFallback(katexScriptRef.current, jsCandidates);
+        if (!canceled) setKatexLoaded(typeof window !== 'undefined' && !!window.katex);
+      } catch (e) {
+        console.warn('Failed to load KaTeX', e);
+        if (!canceled) {
+          setKatexLoaded(false);
+          setKatexLoadError('Math rendering unavailable (KaTeX failed to load).');
+        }
+      }
+    })();
+
+    return () => {
+      canceled = true;
+      // Remove only what we added (best-effort).
+      try {
+        if (katexScriptInserted.current) katexScriptRef.current?.remove?.();
+      } catch { /* ignore */ }
+      try {
+        if (katexLinkInserted.current) katexLinkRef.current?.remove?.();
+      } catch { /* ignore */ }
+      katexScriptRef.current = null;
+      katexLinkRef.current = null;
+    };
   }, []);
 
-  // Initial load
+  // Initial (and KaTeX-ready) render
   useEffect(() => {
-    setHtmlContent(latexToHtml(DEFAULT_LATEX));
+    setHtmlContent(sanitizeEditorHtml(latexToHtml(latexCode)));
   }, [katexLoaded]);
 
   // Sync: LaTeX -> Visual
@@ -75,7 +199,7 @@ export default function LiveLatexEditor() {
         lastSource.current = null; 
         return;
     }
-    const newHtml = latexToHtml(latexCode);
+    const newHtml = sanitizeEditorHtml(latexToHtml(latexCode));
     if (visualEditorRef.current && visualEditorRef.current.innerHTML !== newHtml) {
         setHtmlContent(newHtml);
         if (activeTab !== 'visual') {
@@ -88,12 +212,75 @@ export default function LiveLatexEditor() {
   const handleVisualInput = () => {
     if (!visualEditorRef.current) return;
     lastSource.current = 'visual'; 
-    const bodyContent = htmlToLatex(visualEditorRef.current.innerHTML);
+    const currentHtml = visualEditorRef.current.innerHTML;
+    const isEditingMath = !!visualEditorRef.current.querySelector('.math-inline input, .math-block textarea');
+    const maybeClean = maybeSanitizeEditorHtml(currentHtml);
+    // Avoid clobbering dynamically-attached listeners (math input, confirm button, live preview)
+    // by rewriting innerHTML while a math element is being edited.
+    if (!isEditingMath && maybeClean !== currentHtml) {
+      visualEditorRef.current.innerHTML = maybeClean;
+    }
+    const bodyContent = htmlToLatex(maybeClean);
     const preambleMatch = latexCode.match(/([\s\S]*?\\begin{document})/);
     const endMatch = latexCode.match(/(\\end{document}[\s\S]*)/);
     const preamble = preambleMatch ? preambleMatch[1] : "\\documentclass{article}\n\\begin{document}";
     const end = endMatch ? endMatch[1] : "\\end{document}";
     setLatexCode(`${preamble}\n\n${bodyContent}\n\n${end}`);
+  };
+
+  const handleVisualPaste = (e) => {
+    try {
+      const insertHtmlAtSelection = (html) => {
+        const sel = window.getSelection?.();
+        if (!sel || sel.rangeCount === 0) return false;
+        const range = sel.getRangeAt(0);
+        range.deleteContents();
+        const tpl = document.createElement('template');
+        tpl.innerHTML = html;
+        const frag = tpl.content;
+        const last = frag.lastChild;
+        range.insertNode(frag);
+        if (last) {
+          range.setStartAfter(last);
+          range.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
+        return true;
+      };
+
+      const insertTextAtSelection = (text) => {
+        const sel = window.getSelection?.();
+        if (!sel || sel.rangeCount === 0) return false;
+        const range = sel.getRangeAt(0);
+        range.deleteContents();
+        const node = document.createTextNode(text);
+        range.insertNode(node);
+        range.setStartAfter(node);
+        range.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(range);
+        return true;
+      };
+
+      const html = e.clipboardData?.getData('text/html');
+      const text = e.clipboardData?.getData('text/plain');
+      if (!html && !text) return;
+      e.preventDefault();
+      if (html) {
+        const sanitized = sanitizeEditorHtml(html);
+        if (!insertHtmlAtSelection(sanitized)) {
+          document.execCommand('insertHTML', false, sanitized);
+        }
+      } else if (text) {
+        if (!insertTextAtSelection(text)) {
+          document.execCommand('insertText', false, text);
+        }
+      }
+      handleVisualInput();
+    } catch (err) {
+      console.warn('Paste sanitize failed', err);
+    }
   };
 
   const execCmd = (command, value = null) => {
@@ -117,6 +304,7 @@ export default function LiveLatexEditor() {
             editMathElement(mathEl);
         } else {
             setActiveMathInput(existingInput);
+            focusMathInput(existingInput);
         }
       } else {
         setIsMathActive(false);
@@ -128,15 +316,16 @@ export default function LiveLatexEditor() {
     return () => editor.removeEventListener('click', handleClick);
   }, [katexLoaded]); 
 
-  const editMathElement = (el) => {
-        const isBlock = el.classList.contains('math-block');
-        const latex = decodeURIComponent(el.getAttribute('data-latex') || "");
-        
-        const input = document.createElement(isBlock ? 'textarea' : 'input');
-        input.value = latex;
-        input.className = isBlock 
-          ? "w-full p-2 border-2 border-blue-500 rounded bg-slate-50 font-mono text-sm shadow-inner" 
-          : "px-2 border-2 border-blue-500 rounded bg-slate-50 font-mono text-sm inline-block shadow-inner mx-1";
+	  const editMathElement = (el) => {
+	        const isBlock = el.classList.contains('math-block');
+	        const latex = decodeURIComponent(el.getAttribute('data-latex') || "");
+	        
+	        const input = document.createElement(isBlock ? 'textarea' : 'input');
+	        input.value = latex;
+	        input.placeholder = '(eq)';
+	        input.className = isBlock 
+	          ? "w-full p-2 border-2 border-blue-500 rounded bg-slate-50 font-mono text-sm shadow-inner" 
+	          : "px-2 border-2 border-blue-500 rounded bg-slate-50 font-mono text-sm inline-block shadow-inner mx-1";
         
         if (isBlock) { input.style.minHeight = "40px"; } 
         else { 
@@ -242,25 +431,25 @@ export default function LiveLatexEditor() {
         el.innerHTML = '';
         el.appendChild(input);
 
-        // Optional confirm checkmark button next to input
-        const confirmBtn = document.createElement('button');
-        confirmBtn.type = 'button';
-        confirmBtn.title = 'Confirm equation';
-        confirmBtn.className = isBlock
-          ? 'mt-2 inline-flex items-center gap-1 px-2 py-1 text-xs rounded bg-blue-600 text-white hover:bg-blue-700'
-          : 'ml-1 inline-flex items-center justify-center w-6 h-6 text-xs rounded bg-blue-600 text-white hover:bg-blue-700';
-        confirmBtn.textContent = '✓';
-        confirmBtn.onmousedown = (e) => { e.preventDefault(); e.stopPropagation(); };
-        confirmBtn.onclick = (e) => { e.preventDefault(); commit(); };
-        el.appendChild(confirmBtn);
+	        // Optional confirm checkmark button next to input
+	        const confirmBtn = document.createElement('button');
+	        confirmBtn.type = 'button';
+	        confirmBtn.title = 'Confirm equation';
+	        confirmBtn.className = isBlock
+	          ? 'mt-2 inline-flex items-center gap-1 px-2 py-1 text-xs rounded bg-blue-600 text-white hover:bg-blue-700'
+	          : 'ml-1 inline-flex items-center justify-center w-6 h-6 text-xs rounded bg-blue-600 text-white hover:bg-blue-700';
+	        confirmBtn.textContent = '✓';
+	        confirmBtn.onmousedown = (e) => { e.preventDefault(); e.stopPropagation(); };
+	        confirmBtn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); commit(); };
+	        el.appendChild(confirmBtn);
 
         // Create floating live preview hovering above
         createPreview();
 
-        input.focus();
-        setActiveMathInput(input);
-        if (updatePreview) updatePreview();
-  };
+	        focusMathInput(input);
+	        setActiveMathInput(input);
+	        if (updatePreview) updatePreview();
+	  };
 
   const insertMathSymbol = (cmd) => {
     if (activeMathInput) {
@@ -294,7 +483,7 @@ export default function LiveLatexEditor() {
   const insertMathElement = (isBlock, initialContent = '') => {
     const id = "math-temp-" + Date.now();
     const tag = isBlock ? 'div' : 'span';
-    const cls = isBlock ? 'math-block my-4 text-center cursor-pointer hover:bg-blue-50 transition-colors rounded py-2' : 'math-inline px-1 cursor-pointer hover:bg-blue-50 transition-colors rounded';
+    const cls = isBlock ? 'math-block not-prose my-4 text-center cursor-pointer hover:bg-blue-50 transition-colors rounded py-2' : 'math-inline not-prose px-1 cursor-pointer hover:bg-blue-50 transition-colors rounded';
     const content = initialContent || (isBlock ? '(eq)' : '(eq)');
     
     const html = `<${tag} id="${id}" class="${cls}" contenteditable="false" data-latex="${encodeURIComponent(initialContent)}">${content}</${tag}>${isBlock ? '<p><br></p>' : '&nbsp;'}`;
@@ -617,37 +806,53 @@ export default function LiveLatexEditor() {
             
             {/* Context Aware Toolbar */}
             {isMathActive ? (
-              <MathToolbar onInsert={insertMathSymbol} katexLoaded={katexLoaded} />
+              <MathToolbar
+                onInsert={insertMathSymbol}
+                katexLoaded={katexLoaded}
+                zoom={visualZoom}
+                onZoomChange={setVisualZoom}
+              />
             ) : (
               <EditorToolbar
                 ff={ff}
                 enableVisualTopbar={ENABLE_VISUAL_TOPBAR}
                 isMathActive={isMathActive}
                 katexLoaded={katexLoaded}
+                zoom={visualZoom}
+                onZoomChange={setVisualZoom}
                 actions={{ execCmd, insertLink, insertImage, insertMathElement }}
               />
             )}
 
             {/* Document Surface */}
             <div className="flex-1 overflow-y-auto bg-slate-100 p-8">
-                <div 
-                    className="
-                        max-w-[800px] min-h-[1000px] mx-auto bg-white shadow-lg border border-slate-200 p-12 outline-none 
-                        prose prose-slate max-w-none
-                        prose-h1:text-3xl prose-h1:font-bold prose-h1:mt-6 prose-h1:mb-4
-                        prose-h2:text-2xl prose-h2:font-semibold prose-h2:mt-5 prose-h2:mb-3
-                        prose-h3:text-xl prose-h3:font-medium prose-h3:mt-4 prose-h3:mb-2
-                        prose-p:my-2 prose-ul:my-2 prose-ol:my-2
-                        prose-a:text-blue-600 prose-a:underline
-                        prose-img:rounded-md
-                        prose-pre:bg-slate-100 prose-pre:text-slate-800 prose-pre:border prose-pre:border-slate-200
-                    "
-                    contentEditable
-                    ref={visualEditorRef}
-                    onInput={handleVisualInput}
-                    style={{ outline: 'none' }}
-                    dangerouslySetInnerHTML={{ __html: htmlContent }}
+              <div className="flex justify-center">
+                <div
+                  className="
+                    latex-page outline-none
+                    prose prose-slate max-w-none
+                    prose-h1:text-3xl prose-h1:font-bold prose-h1:mt-6 prose-h1:mb-4
+                    prose-h2:text-2xl prose-h2:font-semibold prose-h2:mt-5 prose-h2:mb-3
+                    prose-h3:text-xl prose-h3:font-medium prose-h3:mt-4 prose-h3:mb-2
+                    prose-p:my-2 prose-ul:my-2 prose-ol:my-2
+                    prose-a:text-blue-600 prose-a:underline
+                    prose-img:rounded-md
+                    prose-pre:bg-slate-100 prose-pre:text-slate-800 prose-pre:border prose-pre:border-slate-200
+                    latex-render-visual-editor
+                  "
+                  contentEditable
+                  ref={visualEditorRef}
+                  onInput={handleVisualInput}
+                  onPaste={handleVisualPaste}
+                  style={{ outline: 'none', transform: `scale(${visualZoom})`, transformOrigin: 'top center' }}
+                  dangerouslySetInnerHTML={{ __html: htmlContent }}
                 />
+              </div>
+              {!katexLoaded && katexLoadError && (
+                <div className="mt-3 max-w-[900px] mx-auto text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                  {katexLoadError}
+                </div>
+              )}
             </div>
           </div>
         )}

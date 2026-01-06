@@ -74,7 +74,7 @@ If you find a bug, please open a new Issue. When reporting a bug, please copy an
 - `src/index.css` — Tailwind base and global styles.
 - `src/constants/math.js` — math groups, defaults, and symbols.
 - `src/constants/flags.js` — feature flags for the toolbar.
-- `tests/escapeLatex.test.js` — escape/unescape tests.
+- `tests/lib/latex.test.js` — LaTeX helper tests.
 
 ## Tooling
 

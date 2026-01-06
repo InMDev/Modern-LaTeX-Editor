@@ -12,12 +12,15 @@
     "preview:pages": "node scripts/preview-pages.cjs"
   },
   "dependencies": {
+    "katex": "^0.16.9",
     "lucide-react": "^0.453.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },
   "devDependencies": {
     "@tailwindcss/typography": "^0.5.10",
+    "@testing-library/dom": "^9.3.3",
+    "@testing-library/react": "^14.2.1",
     "@vitejs/plugin-react": "^4.2.0",
     "@vitest/coverage-v8": "^4.0.16",
     "autoprefixer": "^10.4.16",
@@ -25,8 +28,6 @@
     "postcss": "^8.4.35",
     "tailwindcss": "^3.4.1",
     "vite": "^7.3.0",
-    "vitest": "^4.0.16",
-    "@testing-library/react": "^14.2.1",
-    "@testing-library/dom": "^9.3.3"
+    "vitest": "^4.0.16"
   }
 }
