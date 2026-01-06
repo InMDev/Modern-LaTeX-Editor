@@ -3,12 +3,9 @@ name: Deploy GitHub Pages
 on:
   push:
     branches: [ main ]
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
-
-permissions:
-  contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: pages
@@ -17,6 +14,8 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,17 +29,24 @@ jobs:
       - name: Install
         run: npm ci
 
-      - name: Build (Vite) with repo base path and WASM
+      - name: Build (Vite) for GitHub Pages
         env:
           BASE_PATH: /Modern-LaTex-Editor/
           VITE_USE_WASM_LATEX: 'true'
           VITE_ENABLE_RTEX: 'false'
-        run: npm run build
+        run: npm run build:pages
 
-      - name: Add SPA fallback (404.html)
-        run: cp dist/index.html dist/404.html
+      - name: Verify Pages artifact
+        env:
+          BASE_PATH: /Modern-LaTex-Editor/
+        run: npm run verify:pages
+
+      - name: Setup Pages
+        if: github.event_name != 'pull_request'
+        uses: actions/configure-pages@v5
 
       - name: Upload artifact
+        if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v3
         with:
           path: dist
@@ -51,6 +57,10 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     needs: build
+    if: github.event_name != 'pull_request'
+    permissions:
+      pages: write
+      id-token: write
     steps:
       - name: Deploy to GitHub Pages
         id: deployment

@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest --run --coverage",
-    "build:pages": "BASE_PATH=/Modern-LaTex-Editor/ npm run build",
+    "build:pages": "node scripts/build-pages.cjs",
+    "verify:pages": "node scripts/verify-pages-artifact.cjs",
     "preview:pages": "node scripts/preview-pages.cjs"
   },
   "dependencies": {
