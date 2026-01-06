@@ -2,7 +2,7 @@
 
 A bidirectional LaTeX + rich-text editor with a visual toolbar, live preview, and one-click PDF export.
 
-- Live demo: https://inmdev.github.io/Modern-LaTeX-Editor/
+- Live demo: [https://inmdev.github.io/Modern-LaTeX-Editor/](https://modern-la-te-x-editor-nvzi.vercel.app/)
 
 <p align="center">
   <img src="./assets/demo.png" alt="Modern LaTeX Editor demo" width="800" />
