@@ -12,7 +12,7 @@
     "preview:pages": "node scripts/preview-pages.cjs"
   },
   "dependencies": {
-    "katex": "^0.16.9",
+    "katex": "^0.16.21",
     "lucide-react": "^0.453.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
