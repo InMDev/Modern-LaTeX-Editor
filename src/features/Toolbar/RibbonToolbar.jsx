@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Undo,
   Redo,
@@ -57,13 +58,29 @@ function IconButton({ icon: Icon, onClick, active, title, className = '' }) {
   );
 }
 
+function LabeledButton({ icon: Icon, label, onClick, title, className = '' }) {
+  return (
+    <button
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={(e) => onClick?.(e)}
+      title={title || label}
+      aria-label={title || label}
+      className={`flex items-center gap-1.5 rounded px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 transition-colors ${className}`}
+    >
+      {Icon && <Icon size={14} className="text-slate-600" />}
+      <span className="whitespace-nowrap">{label}</span>
+    </button>
+  );
+}
+
 function Group({ title, children }) {
   return (
-    <div className="flex flex-col justify-between rounded-md border border-slate-200 bg-white px-2 py-2">
-      <div className="flex flex-wrap items-center gap-1">{children}</div>
-      <div className="mt-1 border-t border-slate-100 pt-1 text-center text-[10px] uppercase tracking-wider text-slate-500 select-none">
-        {title}
-      </div>
+    <div
+      className="flex flex-shrink-0 items-center rounded-md border border-slate-200 bg-white px-1.5 py-1"
+      title={title}
+      aria-label={title}
+    >
+      <div className="flex flex-nowrap items-center gap-1">{children}</div>
     </div>
   );
 }
@@ -84,42 +101,86 @@ function useOutsidePointerDown(ref, onOutside) {
 function Menu({ label, items, onChoose, ariaLabel }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
-  useOutsidePointerDown(rootRef, () => setOpen(false));
+  const menuRef = useRef(null);
+  const buttonRef = useRef(null);
+  const [menuPos, setMenuPos] = useState(null);
+
+  useEffect(() => {
+    const onPointerDown = (e) => {
+      const rootEl = rootRef.current;
+      const menuEl = menuRef.current;
+      if (rootEl && rootEl.contains(e.target)) return;
+      if (menuEl && menuEl.contains(e.target)) return;
+      setOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown, true);
+    return () => document.removeEventListener('pointerdown', onPointerDown, true);
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+
+    const update = () => {
+      const btn = buttonRef.current;
+      if (!btn) return;
+      const rect = btn.getBoundingClientRect();
+      const minW = 176;
+      const viewportW = window.innerWidth || 0;
+      const left = Math.max(8, Math.min(rect.left, Math.max(8, viewportW - minW - 8)));
+      const top = rect.bottom + 6;
+      setMenuPos({ left, top, minWidth: Math.max(minW, Math.round(rect.width)) });
+    };
+
+    update();
+    window.addEventListener('resize', update);
+    document.addEventListener('scroll', update, true);
+    return () => {
+      window.removeEventListener('resize', update);
+      document.removeEventListener('scroll', update, true);
+    };
+  }, [open]);
 
   return (
     <div ref={rootRef} className="relative">
       <button
+        ref={buttonRef}
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => setOpen((v) => !v)}
         aria-label={ariaLabel || label}
         aria-expanded={open}
         aria-haspopup="menu"
-        className="flex items-center gap-1 rounded px-2 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 transition-colors"
+        className="flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 transition-colors"
       >
         {label} <ChevronDown size={14} />
       </button>
-      {open && (
-        <div
-          role="menu"
-          className="absolute left-0 top-full z-50 mt-1 min-w-44 rounded-md border border-slate-200 bg-white shadow-lg overflow-hidden"
-        >
-          {items.map((it) => (
-            <button
-              key={it.key}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => {
-                onChoose?.(it);
-                setOpen(false);
-              }}
-              role="menuitem"
-              className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50"
-            >
-              <div className="font-medium">{it.label}</div>
-              {it.hint && <div className="text-[11px] text-slate-500">{it.hint}</div>}
-            </button>
-          ))}
-        </div>
-      )}
+      {open &&
+        menuPos &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            ref={menuRef}
+            role="menu"
+            style={{ position: 'fixed', left: menuPos.left, top: menuPos.top, minWidth: menuPos.minWidth }}
+            className="z-[100] overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg"
+          >
+            {items.map((it) => (
+              <button
+                key={it.key}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  onChoose?.(it);
+                  setOpen(false);
+                }}
+                role="menuitem"
+                className="w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50"
+              >
+                <div className="font-medium">{it.label}</div>
+                {it.hint && <div className="text-[11px] text-slate-500">{it.hint}</div>}
+              </button>
+            ))}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }
@@ -424,21 +485,21 @@ export default function RibbonToolbar({
       </div>
 
 	      {!collapsed && (
-	        <div className="px-2 pb-2">
+	        <div className="px-2 py-1">
 	          {activeTab === 'home' && (
 	            <div
 	              role="tabpanel"
               id="texure-ribbon-panel-home"
               aria-labelledby="texure-ribbon-tab-home"
-	              className="flex flex-wrap items-stretch gap-2"
+	              className="flex flex-nowrap items-center gap-1 overflow-x-auto"
 	            >
 	              <Group title="Font">
-	                <label className="flex items-center gap-2 text-xs text-slate-700">
-	                  <span className="text-[11px] uppercase tracking-wider text-slate-500">Family</span>
+	                <label className="flex items-center gap-1 text-xs text-slate-700">
+	                  <span className="sr-only">Family</span>
 	                  <select
 	                    value={fontFamilyChoice}
 	                    onChange={(e) => applyFontFamily(e.target.value)}
-	                    className="rounded border border-slate-200 bg-white px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-200"
+	                    className="w-[92px] rounded border border-slate-200 bg-white px-1.5 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-200"
 	                  >
 	                    <option value="serif">Serif</option>
 	                    <option value="sans">Sans</option>
@@ -446,13 +507,13 @@ export default function RibbonToolbar({
 	                  </select>
 	                </label>
 
-	                <div className="flex items-center gap-1">
+	                <div className="flex items-center gap-0.5">
 	                  <button
 	                    onMouseDown={(e) => e.preventDefault()}
 	                    onClick={() => applyFontSize((clampFontSizePx(fontSizeInput) ?? 14) - 1)}
 	                    title="Decrease font size (1px)"
 	                    aria-label="Decrease font size (1px)"
-	                    className="rounded p-1.5 text-slate-700 hover:bg-slate-100 transition-colors"
+	                    className="rounded p-1 text-slate-700 hover:bg-slate-100 transition-colors"
 	                  >
 	                    <Minus size={16} />
 	                  </button>
@@ -470,7 +531,7 @@ export default function RibbonToolbar({
 	                      applyFontSize(fontSizeInput);
 	                    }}
 	                    onBlur={() => applyFontSize(fontSizeInput)}
-	                    className="w-[64px] rounded border border-slate-200 bg-white px-2 py-1 text-xs tabular-nums focus:outline-none focus:ring-2 focus:ring-blue-200"
+	                    className="w-[52px] rounded border border-slate-200 bg-white px-1.5 py-1 text-xs tabular-nums focus:outline-none focus:ring-2 focus:ring-blue-200"
 	                    aria-label="Font size in pixels"
 	                  />
 	                  <button
@@ -478,11 +539,10 @@ export default function RibbonToolbar({
 	                    onClick={() => applyFontSize((clampFontSizePx(fontSizeInput) ?? 14) + 1)}
 	                    title="Increase font size (1px)"
 	                    aria-label="Increase font size (1px)"
-	                    className="rounded p-1.5 text-slate-700 hover:bg-slate-100 transition-colors"
+	                    className="rounded p-1 text-slate-700 hover:bg-slate-100 transition-colors"
 	                  >
 	                    <Plus size={16} />
 	                  </button>
-	                  <span className="text-[11px] text-slate-500 select-none">px</span>
 	                </div>
 	              </Group>
 
@@ -534,20 +594,22 @@ export default function RibbonToolbar({
               role="tabpanel"
               id="texure-ribbon-panel-insert"
               aria-labelledby="texure-ribbon-tab-insert"
-              className="flex flex-wrap items-stretch gap-2"
+              className="flex flex-nowrap items-center gap-1 overflow-x-auto"
             >
               {hasInsertEquations && (
                 <Group title="Equations">
                   {ff.showInlineMath && (
-                    <IconButton
+                    <LabeledButton
                       icon={Sigma}
+                      label="Inline"
                       onClick={() => actions.insertMathElement?.(false)}
                       title="Inline Equation ($...$)"
                     />
                   )}
                   {ff.showDisplayMath && (
-                    <IconButton
+                    <LabeledButton
                       icon={FunctionSquare}
+                      label="Block"
                       onClick={() => actions.insertMathElement?.(true)}
                       title="Display Equation (\\[...\\])"
                     />
@@ -558,9 +620,21 @@ export default function RibbonToolbar({
               {hasInsertCode && (
                 <Group title="Code">
                   {ff.showInlineCode && (
-                    <IconButton icon={Code} onClick={() => actions.insertInlineCode?.()} active={isInlineCodeActive} title="Inline Code" />
+                    <LabeledButton
+                      icon={Code}
+                      label="Inline"
+                      onClick={() => actions.insertInlineCode?.()}
+                      title="Inline Code"
+                    />
                   )}
-                  {ff.showCodeBlock && <IconButton icon={SquareTerminal} onClick={() => actions.insertCodeBlock?.()} title="Code Block" />}
+                  {ff.showCodeBlock && (
+                    <LabeledButton
+                      icon={SquareTerminal}
+                      label="Block"
+                      onClick={() => actions.insertCodeBlock?.()}
+                      title="Code Block"
+                    />
+                  )}
                 </Group>
               )}
 
@@ -570,7 +644,7 @@ export default function RibbonToolbar({
                     <button
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={() => actions.insertHSpace?.()}
-                      className="rounded px-2 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 transition-colors"
+                      className="rounded px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 transition-colors"
                       title="Horizontal Space (\\hspace{...})"
                       aria-label="Horizontal Space (\\hspace{...})"
                     >
@@ -581,7 +655,7 @@ export default function RibbonToolbar({
                     <button
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={() => actions.insertVSpace?.()}
-                      className="rounded px-2 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 transition-colors"
+                      className="rounded px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 transition-colors"
                       title="Vertical Space (\\vspace{...})"
                       aria-label="Vertical Space (\\vspace{...})"
                     >
@@ -592,7 +666,7 @@ export default function RibbonToolbar({
                     <button
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={() => actions.insertNewPage?.()}
-                      className="rounded px-2 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 transition-colors"
+                      className="rounded px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 transition-colors"
                       title="Page Break (\\newpage)"
                       aria-label="Page Break (\\newpage)"
                     >
@@ -611,13 +685,13 @@ export default function RibbonToolbar({
             </div>
           )}
 
-          {activeTab === 'view' && (
-            <div
-              role="tabpanel"
-              id="texure-ribbon-panel-view"
-              aria-labelledby="texure-ribbon-tab-view"
-              className="flex flex-wrap items-stretch gap-2"
-            >
+	          {activeTab === 'view' && (
+	            <div
+	              role="tabpanel"
+	              id="texure-ribbon-panel-view"
+	              aria-labelledby="texure-ribbon-tab-view"
+	              className="flex flex-nowrap items-center gap-1 overflow-x-auto"
+	            >
               <Group title="Zoom">
                 {canZoom ? (
                   <>
