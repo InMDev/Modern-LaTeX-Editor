@@ -1,6 +1,6 @@
 # Modern LaTeX Editor (Texure)
 
-A bidirectional LaTeX + rich-text editor with a visual toolbar, live preview, and one-click PDF export.
+A bidirectional LaTeX code + rich-text editor with a visual toolbar, live preview, and one-click PDF export.
 
 - Live demo: [https://inmdev.github.io/Modern-LaTeX-Editor/](https://inmdev.github.io/Modern-LaTeX-Editor/)
 
