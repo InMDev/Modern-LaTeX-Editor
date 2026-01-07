@@ -178,7 +178,7 @@ Inline $a+b$ and display:
     const latex = `\\section{S}
 \\textbf{B} \\textit{I} \\underline{U} \\textsf{Sans}
 \\tiny tiny \\small small \\large large \\Large XL \\huge huge
-\\textcolor{#ff00aa}{C} \\colorbox{blue}{BG}
+	\\textcolor[HTML]{FF00AA}{C} \\colorbox{blue}{BG}
 \\begin{center}Center\\end{center}
 \\begin{flushright}Right\\end{flushright}
 \\begin{flushleft}Left\\end{flushleft}
@@ -562,10 +562,10 @@ Text after.
     expect(out).toContain('\\textbf{B}');
     expect(out).toContain('\\textit{I}');
     expect(out).toContain('\\underline{U}');
-    expect(out).toContain('\\textcolor{#aabbcc}');
-    expect(out).toContain('\\colorbox{#010203}');
-    expect(out).toContain('\\textcolor{#a1b2c3}');
-    expect(out).toContain('\\textcolor{#000000}');
+    expect(out).toContain('\\textcolor[HTML]{AABBCC}');
+    expect(out).toContain('\\colorbox[HTML]{010203}');
+    expect(out).toContain('\\textcolor[HTML]{A1B2C3}');
+    expect(out).toContain('\\textcolor[HTML]{000000}');
     expect(out).not.toContain('var(--x)');
     expect(out).toContain('\\textsf{');
     expect(out).toContain('\\tiny');
@@ -697,7 +697,7 @@ Text after.
     expect(out).toContain('p');
     expect(out).toContain('\\colorbox{blue}{b}');
     expect(out).not.toContain('\\colorbox{transparent}');
-    expect(out).not.toContain('\\colorbox{#010203}');
+    expect(out).not.toContain('\\colorbox[HTML]{010203}');
     expect(out).not.toContain('display-p3');
   });
 

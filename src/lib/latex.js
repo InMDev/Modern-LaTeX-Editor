@@ -396,6 +396,8 @@ const latexToHtml = (latex) => {
     .replace(/\\LARGE\s+([\s\S]*?)(?=\\|\n|$)/g, '<span style="font-size: 17.28pt">$1</span>')
     .replace(/\\huge\s+([\s\S]*?)(?=\\|\n|$)/g, '<span style="font-size: 20.74pt">$1</span>')
     .replace(/\\Huge\s+([\s\S]*?)(?=\\|\n|$)/g, '<span style="font-size: 24.88pt">$1</span>')
+    .replace(/\\textcolor\[(HTML)\]\{([0-9a-fA-F]{6})\}\{([\s\S]*?)\}/g, '<span style="color: #$2">$3</span>')
+    .replace(/\\colorbox\[(HTML)\]\{([0-9a-fA-F]{6})\}\{([\s\S]*?)\}/g, '<span style="background-color: #$2">$3</span>')
     .replace(/\\textcolor\{([a-zA-Z]+|#[0-9a-fA-F]{6})\}\{([\s\S]*?)\}/g, '<span style="color: $1">$2</span>')
     .replace(/\\colorbox\{([a-zA-Z]+|#[0-9a-fA-F]{6})\}\{([\s\S]*?)\}/g, '<span style="background-color: $1">$2</span>')
     .replace(/\\begin\{center\}([\s\S]*?)\\end\{center\}/g, '<div style="text-align: center">$1</div>')
@@ -542,6 +544,22 @@ const htmlToLatex = (html) => {
     return `#${toHex(rgb[1])}${toHex(rgb[2])}${toHex(rgb[3])}`;
   };
 
+  const toXcolorSpec = (raw) => {
+    const c = String(raw || '').trim();
+    if (!c) return null;
+    if (c.startsWith('#') && /^[0-9a-fA-F]{6}$/.test(c.slice(1))) {
+      return { model: 'HTML', value: c.slice(1).toUpperCase() };
+    }
+    if (/^[a-zA-Z]+$/.test(c)) return { model: null, value: c };
+    return null;
+  };
+
+  const xcolorWrap = (cmd, spec) => {
+    if (!spec) return null;
+    if (spec.model) return `\\${cmd}[${spec.model}]{${spec.value}}{`;
+    return `\\${cmd}{${spec.value}}{`;
+  };
+
   const isNotionInlineCodeStyle = (node) => {
     if (!node || !node.style) return false;
     const bgHex = rgbToHex(getStyle(node, 'backgroundColor'));
@@ -627,8 +645,16 @@ const htmlToLatex = (html) => {
 
       const cHex = rgbToHex(color);
       const bgHex = rgbToHex(bg);
-      if (cHex && cHex !== 'inherit' && !cHex.includes('black')) { prefix += `\\textcolor{${cHex}}{`; suffix = `}${suffix}`; }
-      if (bgHex && bgHex !== 'inherit') { prefix += `\\colorbox{${bgHex}}{`; suffix = `}${suffix}`; }
+      const cSpec = toXcolorSpec(cHex);
+      const bgSpec = toXcolorSpec(bgHex);
+      if (cSpec && !String(cSpec.value || '').toLowerCase().includes('black')) {
+        const wrap = xcolorWrap('textcolor', cSpec);
+        if (wrap) { prefix += wrap; suffix = `}${suffix}`; }
+      }
+      if (bgSpec) {
+        const wrap = xcolorWrap('colorbox', bgSpec);
+        if (wrap) { prefix += wrap; suffix = `}${suffix}`; }
+      }
       if (align === 'center') { prefix = `\n\\begin{center}\n${prefix}`; suffix = `${suffix}\n\\end{center}\n`; }
       else if (align === 'right') { prefix = `\n\\begin{flushright}\n${prefix}`; suffix = `${suffix}\n\\end{flushright}\n`; }
       else if (align === 'justify') { prefix = `\n\\begin{justify}\n${prefix}`; suffix = `${suffix}\n\\end{justify}\n`; }

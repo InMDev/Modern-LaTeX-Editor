@@ -479,6 +479,46 @@ export default function LiveLatexEditor() {
     return true;
   };
 
+  const appendHtmlToVisualEditorEnd = (html) => {
+    const root = visualEditorRef.current;
+    if (!root) return false;
+    try {
+      const tpl = document.createElement('template');
+      tpl.innerHTML = html;
+      root.appendChild(tpl.content);
+      root.focus();
+      const r = document.createRange();
+      r.selectNodeContents(root);
+      r.collapse(false);
+      const sel = window.getSelection?.();
+      if (!sel) return true;
+      sel.removeAllRanges();
+      sel.addRange(r);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const appendTextToVisualEditorEnd = (text) => {
+    const root = visualEditorRef.current;
+    if (!root) return false;
+    try {
+      root.appendChild(document.createTextNode(String(text ?? '')));
+      root.focus();
+      const r = document.createRange();
+      r.selectNodeContents(root);
+      r.collapse(false);
+      const sel = window.getSelection?.();
+      if (!sel) return true;
+      sel.removeAllRanges();
+      sel.addRange(r);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   const handleVisualScroll = (e) => {
     const target = e?.target;
     if (!target || !target.tagName) return;
@@ -673,6 +713,103 @@ export default function LiveLatexEditor() {
     sel.removeAllRanges();
     sel.addRange(range);
     return true;
+  };
+
+  const insertParagraphAtSelection = () => {
+    const root = visualEditorRef.current;
+    if (!root) return false;
+    if (!ensureVisualEditorSelection()) return false;
+    try {
+      const sel = window.getSelection?.();
+      if (!sel || sel.rangeCount === 0) return false;
+      const range = sel.getRangeAt(0);
+      const container = range.startContainer?.nodeType === 1 ? range.startContainer : range.startContainer?.parentElement;
+      const el = container?.closest ? container : null;
+      const block = el?.closest?.('p, div, li, h1, h2, h3, h4, blockquote');
+
+      const placeCaretIn = (node) => {
+        try {
+          const r = document.createRange();
+          r.setStart(node, 0);
+          r.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(r);
+        } catch { /* ignore */ }
+      };
+
+      if (block && root.contains(block) && block !== root) {
+        if (String(block.tagName || '').toLowerCase() === 'li') {
+          const li = document.createElement('li');
+          li.appendChild(document.createElement('br'));
+          block.insertAdjacentElement('afterend', li);
+          placeCaretIn(li);
+          return true;
+        }
+        const p = document.createElement('p');
+        p.appendChild(document.createElement('br'));
+        block.insertAdjacentElement('afterend', p);
+        placeCaretIn(p);
+        return true;
+      }
+
+      const p = document.createElement('p');
+      p.appendChild(document.createElement('br'));
+      root.appendChild(p);
+      placeCaretIn(p);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const isSafeLinkUrl = (raw) => {
+    const url = String(raw ?? '').trim();
+    if (!url) return false;
+    if (/^\s*javascript:/i.test(url)) return false;
+    if (/^\s*data:/i.test(url)) return false;
+    return true;
+  };
+
+  const createLinkAtSelection = (rawUrl) => {
+    if (!isSafeLinkUrl(rawUrl)) return false;
+    if (!ensureVisualEditorSelection()) return false;
+    const url = String(rawUrl).trim();
+    try {
+      const sel = window.getSelection?.();
+      if (!sel || sel.rangeCount === 0) return false;
+      const range = sel.getRangeAt(0);
+
+      const a = document.createElement('a');
+      a.setAttribute('href', url);
+      a.setAttribute('target', '_blank');
+      a.setAttribute('rel', 'noopener noreferrer');
+
+      if (range.collapsed) {
+        a.textContent = url;
+        range.insertNode(a);
+        range.setStartAfter(a);
+        range.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(range);
+        return true;
+      }
+
+      try {
+        range.surroundContents(a);
+        return true;
+      } catch {
+        const frag = range.extractContents();
+        a.appendChild(frag);
+        range.insertNode(a);
+        range.setStartAfter(a);
+        range.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(range);
+        return true;
+      }
+    } catch {
+      return false;
+    }
   };
 
   const stripZeroWidth = (text) => String(text || '').replace(/[\u200B\uFEFF]/g, '');
@@ -984,15 +1121,12 @@ export default function LiveLatexEditor() {
       const text = e.clipboardData?.getData('text/plain');
       if (!html && !text) return;
       e.preventDefault();
+      ensureVisualEditorSelection();
       if (html) {
         const sanitized = sanitizeEditorHtml(html);
-        if (!insertHtmlAtSelection(sanitized)) {
-          document.execCommand('insertHTML', false, sanitized);
-        }
+        if (!insertHtmlAtSelection(sanitized)) appendHtmlToVisualEditorEnd(sanitized);
       } else if (text) {
-        if (!insertTextAtSelection(text)) {
-          document.execCommand('insertText', false, text);
-        }
+        if (!insertTextAtSelection(text)) appendTextToVisualEditorEnd(text);
       }
       handleVisualInput();
     } catch (err) {
@@ -1011,9 +1145,32 @@ export default function LiveLatexEditor() {
       if (visualEditorRef.current) visualEditorRef.current.focus();
       return;
     }
-    document.execCommand(command, false, value);
-    if (visualEditorRef.current) visualEditorRef.current.focus();
-    handleVisualInput();
+    ensureVisualEditorSelection();
+    let changed = false;
+    if (command === 'insertHTML') {
+      const html = String(value ?? '');
+      changed = insertHtmlAtSelection(html) || appendHtmlToVisualEditorEnd(html);
+    } else if (command === 'insertText') {
+      const text = String(value ?? '');
+      changed = insertTextAtSelection(text) || appendTextToVisualEditorEnd(text);
+    } else if (command === 'insertParagraph') {
+      changed = insertParagraphAtSelection();
+    } else if (command === 'createLink') {
+      changed = createLinkAtSelection(value);
+    } else if (command === 'insertImage') {
+      const url = String(value ?? '').trim();
+      if (url) {
+        const safeUrl = url.replace(/"/g, '&quot;');
+        const html = `<img src="${safeUrl}" alt="" style="max-width:100%" />`;
+        changed = insertHtmlAtSelection(`${html}<p><br></p>`) || appendHtmlToVisualEditorEnd(`${html}<p><br></p>`);
+      }
+    } else {
+      console.warn('Unsupported editor command', command);
+    }
+    if (changed) {
+      if (visualEditorRef.current) visualEditorRef.current.focus();
+      handleVisualInput();
+    }
   };
 
   const resolveTexureImages = async () => {
@@ -1276,9 +1433,8 @@ export default function LiveLatexEditor() {
       texureImageUrlCache.current.set(id, url);
       const alt = String(file.name || '').replace(/"/g, '&quot;');
       const html = `<img src="${url}" data-texure-image-id="${id}" data-texure-img-width="1" data-texure-img-angle="0" data-texure-img-x="0" data-texure-img-y="0" alt="${alt}" style="max-width:100%" />`;
-      if (!insertHtmlAtSelection(`${html}<p><br></p>`)) {
-        document.execCommand('insertHTML', false, `${html}<p><br></p>`);
-      }
+      ensureVisualEditorSelection();
+      if (!insertHtmlAtSelection(`${html}<p><br></p>`)) appendHtmlToVisualEditorEnd(`${html}<p><br></p>`);
     }
     handleVisualInput();
     resolveTexureImages();
@@ -1894,17 +2050,29 @@ export default function LiveLatexEditor() {
   const isPdfPreviewVisible =
     activeTab === 'pdf' || (activeTab === 'both' && splitPreviewMode === 'pdf');
 
-  const normalizeLatexForPdfPreview = (input) => {
-    let out = String(input || '');
+	  const normalizeLatexForPdfPreview = (input) => {
+	    let out = String(input || '');
 
-    // Avoid xcolor errors when "transparent" is accidentally used as a color name.
-    out = out.replace(/\\colorbox\{transparent\}\{([^}]*)\}/gi, '$1');
-    out = out.replace(/\\textcolor\{transparent\}\{([^}]*)\}/gi, '$1');
+	    // Avoid xcolor errors when "transparent" is accidentally used as a color name.
+	    out = out.replace(/\\colorbox\{transparent\}\{([^}]*)\}/gi, '$1');
+	    out = out.replace(/\\textcolor\{transparent\}\{([^}]*)\}/gi, '$1');
 
-    // Convert minted to listings to avoid pygmentize/shell-escape requirements on remote compilers.
-    out = out.replace(/\\begin\{minted\}(?:\[[^\]]*\])?\{([^}]*)\}([\s\S]*?)\\end\{minted\}/g, (_, lang, body) => {
-      const code = String(body || '').replace(/^\n/, '').replace(/\n$/, '');
-      const safeLang = String(lang || '').trim();
+	    // Normalize legacy/invalid hex colors that use `#rrggbb` directly.
+	    out = out.replace(/\\textcolor\{#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})\}\{/g, (_m, hex) => {
+	      const h = String(hex || '');
+	      const v = h.length === 3 ? h.split('').map((c) => c + c).join('') : h;
+	      return `\\textcolor[HTML]{${v.toUpperCase()}}{`;
+	    });
+	    out = out.replace(/\\colorbox\{#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})\}\{/g, (_m, hex) => {
+	      const h = String(hex || '');
+	      const v = h.length === 3 ? h.split('').map((c) => c + c).join('') : h;
+	      return `\\colorbox[HTML]{${v.toUpperCase()}}{`;
+	    });
+
+	    // Convert minted to listings to avoid pygmentize/shell-escape requirements on remote compilers.
+	    out = out.replace(/\\begin\{minted\}(?:\[[^\]]*\])?\{([^}]*)\}([\s\S]*?)\\end\{minted\}/g, (_, lang, body) => {
+	      const code = String(body || '').replace(/^\n/, '').replace(/\n$/, '');
+	      const safeLang = String(lang || '').trim();
       const opt = safeLang ? `[language=${safeLang}]` : '';
       return `\\begin{lstlisting}${opt}\n${code}\n\\end{lstlisting}`;
     });
