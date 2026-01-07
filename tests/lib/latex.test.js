@@ -568,15 +568,17 @@ Text after.
     expect(out).toContain('\\textcolor[HTML]{000000}');
     expect(out).not.toContain('var(--x)');
     expect(out).toContain('\\textsf{');
-    expect(out).toContain('\\tiny');
-    expect(out).toContain('\\scriptsize');
-    expect(out).toContain('\\footnotesize');
-    expect(out).toContain('\\small');
-    expect(out).toContain('\\large');
-    expect(out).toContain('\\Large');
-    expect(out).toContain('\\LARGE');
-    expect(out).toContain('\\huge');
-    expect(out).toContain('\\Huge');
+    // Precise font sizing uses \fontsize{..pt}{..pt}\selectfont (px converted to pt at 96dpi).
+    expect(out).toContain('\\fontsize{7.5pt}{9pt}\\selectfont'); // 10px -> 7.5pt
+    expect(out).toContain('\\fontsize{5pt}{6pt}\\selectfont'); // 5pt -> 5pt
+    expect(out).toContain('\\fontsize{9pt}{10.8pt}\\selectfont'); // 9pt -> 9pt
+    expect(out).toContain('\\fontsize{5.25pt}{6.3pt}\\selectfont'); // 7px -> 5.25pt
+    expect(out).toContain('\\fontsize{6pt}{7.2pt}\\selectfont'); // 8px -> 6pt
+    expect(out).toContain('\\fontsize{12pt}{14.4pt}\\selectfont'); // 12pt -> 12pt
+    expect(out).toContain('\\fontsize{14.4pt}{17.28pt}\\selectfont'); // 14.4pt -> 14.4pt
+    expect(out).toContain('\\fontsize{12.75pt}{15.3pt}\\selectfont'); // 17px -> 12.75pt
+    expect(out).toContain('\\fontsize{20.74pt}{24.888pt}\\selectfont'); // 20.74pt baseline
+    expect(out).toContain('\\fontsize{18pt}{21.6pt}\\selectfont'); // 24px -> 18pt
     expect(out).toContain('\\begin{center}');
     expect(out).toContain('\\begin{flushright}');
     expect(out).toContain('\\href{https://example.com}{Link}');

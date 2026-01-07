@@ -21,6 +21,8 @@ import {
   Sigma,
   ZoomIn,
   ZoomOut,
+  Minus,
+  Plus,
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
@@ -204,6 +206,8 @@ export default function RibbonToolbar({
 }) {
   const TAB_KEY = 'texure.ribbon.activeTab';
   const COLLAPSE_KEY = 'texure.ribbon.collapsed';
+  const FONT_SIZE_KEY = 'texure.ribbon.fontSizePx';
+  const FONT_FAMILY_KEY = 'texure.ribbon.fontFamily';
 
   const [collapsed, setCollapsed] = useState(() => {
     try {
@@ -218,6 +222,25 @@ export default function RibbonToolbar({
     } catch {
       return 'home';
     }
+  });
+  const [fontSizeInput, setFontSizeInput] = useState(() => {
+    try {
+      const raw = localStorage.getItem(FONT_SIZE_KEY);
+      const n = raw != null ? Number(raw) : NaN;
+      if (Number.isFinite(n)) return String(Math.max(6, Math.min(96, Math.round(n))));
+    } catch {
+      /* ignore */
+    }
+    return '14';
+  });
+  const [fontFamilyChoice, setFontFamilyChoice] = useState(() => {
+    try {
+      const v = localStorage.getItem(FONT_FAMILY_KEY);
+      if (v === 'sans' || v === 'mono' || v === 'serif') return v;
+    } catch {
+      /* ignore */
+    }
+    return 'serif';
   });
   const lastNonContextTabRef = useRef(activeTab === 'equation' ? 'home' : activeTab);
   const [mathGroup, setMathGroup] = useState('structures');
@@ -237,6 +260,23 @@ export default function RibbonToolbar({
       /* ignore */
     }
   }, [collapsed]);
+
+  useEffect(() => {
+    try {
+      const n = Number(fontSizeInput);
+      if (Number.isFinite(n)) localStorage.setItem(FONT_SIZE_KEY, String(n));
+    } catch {
+      /* ignore */
+    }
+  }, [fontSizeInput]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(FONT_FAMILY_KEY, fontFamilyChoice);
+    } catch {
+      /* ignore */
+    }
+  }, [fontFamilyChoice]);
 
   useEffect(() => {
     if (activeTab !== 'equation') lastNonContextTabRef.current = activeTab;
@@ -278,6 +318,30 @@ export default function RibbonToolbar({
     ...(ff.showHeading3 ? [{ key: 'h3', label: 'Heading 3', hint: 'H3' }] : []),
     ...(ff.showHeading4 ? [{ key: 'h4', label: 'Heading 4', hint: 'H4' }] : []),
   ];
+
+  const clampFontSizePx = (n) => {
+    const num = Math.round(Number(n));
+    if (!Number.isFinite(num)) return null;
+    return Math.max(6, Math.min(96, num));
+  };
+
+  const applyFontSize = (n) => {
+    const px = clampFontSizePx(n);
+    if (px == null) {
+      setFontSizeInput((prev) => String(clampFontSizePx(prev) ?? 14));
+      return;
+    }
+    setFontSizeInput(String(px));
+    actions?.applyFontSizePx?.(px);
+  };
+
+  const applyFontFamily = (choice) => {
+    const c = choice === 'sans' || choice === 'mono' ? choice : 'serif';
+    setFontFamilyChoice(c);
+    if (c === 'sans') actions?.applyFontFamily?.('sans-serif');
+    else if (c === 'mono') actions?.applyFontFamily?.('monospace');
+    else actions?.applyFontFamily?.('serif');
+  };
 
   return (
     <div className="w-full border-b border-slate-200 bg-slate-50">
@@ -359,19 +423,73 @@ export default function RibbonToolbar({
         </div>
       </div>
 
-      {!collapsed && (
-        <div className="px-2 pb-2">
-          {activeTab === 'home' && (
-            <div
-              role="tabpanel"
+	      {!collapsed && (
+	        <div className="px-2 pb-2">
+	          {activeTab === 'home' && (
+	            <div
+	              role="tabpanel"
               id="texure-ribbon-panel-home"
               aria-labelledby="texure-ribbon-tab-home"
-              className="flex flex-wrap items-stretch gap-2"
-            >
-              {hasTextStyles && (
-                <Group title="Styles">
-                  {ff.showBold && <IconButton icon={Bold} onClick={() => actions.execCmd('bold')} title="Bold" />}
-                  {ff.showItalic && <IconButton icon={Italic} onClick={() => actions.execCmd('italic')} title="Italic" />}
+	              className="flex flex-wrap items-stretch gap-2"
+	            >
+	              <Group title="Font">
+	                <label className="flex items-center gap-2 text-xs text-slate-700">
+	                  <span className="text-[11px] uppercase tracking-wider text-slate-500">Family</span>
+	                  <select
+	                    value={fontFamilyChoice}
+	                    onChange={(e) => applyFontFamily(e.target.value)}
+	                    className="rounded border border-slate-200 bg-white px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-200"
+	                  >
+	                    <option value="serif">Serif</option>
+	                    <option value="sans">Sans</option>
+	                    <option value="mono">Monospace</option>
+	                  </select>
+	                </label>
+
+	                <div className="flex items-center gap-1">
+	                  <button
+	                    onMouseDown={(e) => e.preventDefault()}
+	                    onClick={() => applyFontSize((clampFontSizePx(fontSizeInput) ?? 14) - 1)}
+	                    title="Decrease font size (1px)"
+	                    aria-label="Decrease font size (1px)"
+	                    className="rounded p-1.5 text-slate-700 hover:bg-slate-100 transition-colors"
+	                  >
+	                    <Minus size={16} />
+	                  </button>
+	                  <input
+	                    type="number"
+	                    inputMode="numeric"
+	                    min={6}
+	                    max={96}
+	                    step={1}
+	                    value={fontSizeInput}
+	                    onChange={(e) => setFontSizeInput(e.target.value)}
+	                    onKeyDown={(e) => {
+	                      if (e.key !== 'Enter') return;
+	                      e.preventDefault();
+	                      applyFontSize(fontSizeInput);
+	                    }}
+	                    onBlur={() => applyFontSize(fontSizeInput)}
+	                    className="w-[64px] rounded border border-slate-200 bg-white px-2 py-1 text-xs tabular-nums focus:outline-none focus:ring-2 focus:ring-blue-200"
+	                    aria-label="Font size in pixels"
+	                  />
+	                  <button
+	                    onMouseDown={(e) => e.preventDefault()}
+	                    onClick={() => applyFontSize((clampFontSizePx(fontSizeInput) ?? 14) + 1)}
+	                    title="Increase font size (1px)"
+	                    aria-label="Increase font size (1px)"
+	                    className="rounded p-1.5 text-slate-700 hover:bg-slate-100 transition-colors"
+	                  >
+	                    <Plus size={16} />
+	                  </button>
+	                  <span className="text-[11px] text-slate-500 select-none">px</span>
+	                </div>
+	              </Group>
+
+	              {hasTextStyles && (
+	                <Group title="Styles">
+	                  {ff.showBold && <IconButton icon={Bold} onClick={() => actions.execCmd('bold')} title="Bold" />}
+	                  {ff.showItalic && <IconButton icon={Italic} onClick={() => actions.execCmd('italic')} title="Italic" />}
                   {ff.showUnderline && <IconButton icon={Underline} onClick={() => actions.execCmd('underline')} title="Underline" />}
                   {ff.showInlineCode && (
                     <IconButton icon={Code} onClick={() => actions.insertInlineCode?.()} active={isInlineCodeActive} title="Inline Code" />

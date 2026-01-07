@@ -929,10 +929,30 @@ export default function LiveLatexEditor() {
     } catch { /* ignore */ }
   };
 
+  const handleVisualSelectionChange = () => {
+    saveEditorSelection();
+    syncInlineCodeActive();
+  };
+
   const ensureVisualEditorSelection = () => {
     const root = visualEditorRef.current;
     if (!root) return false;
     if (isSelectionInsideVisualEditor()) return true;
+    // If focus moved to a toolbar control, restore the last editor selection so
+    // formatting actions (font size/family) apply like bold/italic/underline.
+    try {
+      const saved = savedSelectionRef.current;
+      const sel = window.getSelection?.();
+      if (saved && sel) {
+        const container = saved.commonAncestorContainer;
+        const node = container?.nodeType === 1 ? container : container?.parentNode;
+        if (node && root.contains(node)) {
+          sel.removeAllRanges();
+          sel.addRange(saved);
+          return true;
+        }
+      }
+    } catch { /* ignore */ }
     try {
       root.focus();
       const r = document.createRange();
@@ -1165,11 +1185,82 @@ export default function LiveLatexEditor() {
         changed = insertHtmlAtSelection(`${html}<p><br></p>`) || appendHtmlToVisualEditorEnd(`${html}<p><br></p>`);
       }
     } else {
-      console.warn('Unsupported editor command', command);
+      try {
+        // Fall back to document.execCommand for common rich-text operations
+        // (bold/italic/underline, lists, alignment, undo/redo, formatBlock).
+        // Deprecated, but still widely supported and useful for this editor.
+        if (command === 'formatBlock') {
+          const v = String(value ?? '').trim();
+          const arg = v ? (v.startsWith('<') ? v : `<${v.toLowerCase()}>`) : 'p';
+          changed = document.execCommand('formatBlock', false, arg);
+        } else {
+          changed = document.execCommand(command, false, value);
+        }
+      } catch {
+        console.warn('Unsupported editor command', command);
+      }
     }
     if (changed) {
       if (visualEditorRef.current) visualEditorRef.current.focus();
       handleVisualInput();
+    }
+  };
+
+  const applyInlineStyleAtSelection = ({ fontSizePx, fontFamily } = {}) => {
+    try {
+      const root = visualEditorRef.current;
+      if (!root) return false;
+      if (!ensureVisualEditorSelection()) return false;
+
+      const sel = window.getSelection?.();
+      if (!sel || sel.rangeCount === 0) return false;
+      const range = sel.getRangeAt(0);
+
+      const common =
+        range.commonAncestorContainer?.nodeType === 1
+          ? range.commonAncestorContainer
+          : range.commonAncestorContainer?.parentElement;
+      if (!common || !root.contains(common)) return false;
+
+      const blocked = common.closest?.(
+        '.texure-codeblock, .math-inline, .math-block, code, pre, textarea, input, select, [contenteditable="false"]'
+      );
+      if (blocked && root.contains(blocked)) return false;
+
+      const span = document.createElement('span');
+      if (fontFamily != null) span.style.fontFamily = String(fontFamily);
+
+      if (fontSizePx != null) {
+        const n = Math.round(Number(fontSizePx));
+        if (Number.isFinite(n)) span.style.fontSize = `${Math.max(6, Math.min(96, n))}px`;
+      }
+
+      if (!span.getAttribute('style')) return false;
+
+      if (range.collapsed) {
+        const zwsp = document.createTextNode('\u200B');
+        span.appendChild(zwsp);
+        range.insertNode(span);
+        const r = document.createRange();
+        r.setStart(zwsp, 1);
+        r.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(r);
+      } else {
+        const frag = range.extractContents();
+        span.appendChild(frag);
+        range.insertNode(span);
+        const r = document.createRange();
+        r.selectNodeContents(span);
+        sel.removeAllRanges();
+        sel.addRange(r);
+      }
+
+      if (visualEditorRef.current) visualEditorRef.current.focus();
+      handleVisualInput();
+      return true;
+    } catch {
+      return false;
     }
   };
 
@@ -2621,7 +2712,7 @@ export default function LiveLatexEditor() {
           >
             
             {/* Context Aware Toolbar */}
-            <RibbonToolbar
+	            <RibbonToolbar
               ff={ff}
               enableVisualTopbar={ENABLE_VISUAL_TOPBAR}
               isMathActive={isMathActive}
@@ -2630,14 +2721,16 @@ export default function LiveLatexEditor() {
               zoom={visualZoom}
               onZoomChange={setVisualZoom}
               onInsertMathSymbol={insertMathSymbol}
-              actions={{
-                execCmd,
-                insertLink,
-                insertImage,
-                insertMathElement,
-                insertInlineCode: () => openCodeInsert('inline'),
-                insertCodeBlock: () => openCodeInsert('block'),
-                insertHSpace: () => openSpacingInsert('hspace'),
+	              actions={{
+	                execCmd,
+	                insertLink,
+	                insertImage,
+	                applyFontSizePx: (px) => applyInlineStyleAtSelection({ fontSizePx: px }),
+	                applyFontFamily: (family) => applyInlineStyleAtSelection({ fontFamily: family }),
+	                insertMathElement,
+	                insertInlineCode: () => openCodeInsert('inline'),
+	                insertCodeBlock: () => openCodeInsert('block'),
+	                insertHSpace: () => openSpacingInsert('hspace'),
                 insertVSpace: () => openSpacingInsert('vspace'),
                 insertNewPage,
               }}
@@ -2664,8 +2757,8 @@ export default function LiveLatexEditor() {
                   onBeforeInput={handleVisualBeforeInput}
                   onInput={handleVisualInput}
                   onKeyDown={handleVisualKeyDown}
-                  onKeyUp={syncInlineCodeActive}
-                  onMouseUp={syncInlineCodeActive}
+                  onKeyUp={handleVisualSelectionChange}
+                  onMouseUp={handleVisualSelectionChange}
                   onScroll={handleVisualScroll}
                   onPaste={handleVisualPaste}
                   onDragOver={handleVisualDragOver}

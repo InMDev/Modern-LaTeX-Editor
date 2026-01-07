@@ -377,6 +377,86 @@ const latexToHtml = (latex) => {
     });
 
   // FORMATTING
+  const replaceFontsizeGroups = (input) => {
+    const s = String(input || '');
+    const out = [];
+    const n = s.length;
+    let i = 0;
+    while (i < n) {
+      const start = s.indexOf('{\\fontsize{', i);
+      if (start === -1) {
+        out.push(s.slice(i));
+        break;
+      }
+      out.push(s.slice(i, start));
+      let j = start + 1; // after "{"
+      // Parse "\fontsize{...}{...}\selectfont"
+      if (!s.startsWith('\\fontsize{', j)) {
+        out.push(s.slice(start, start + 1));
+        i = start + 1;
+        continue;
+      }
+      j += '\\fontsize{'.length;
+      const sizeEnd = s.indexOf('}', j);
+      if (sizeEnd === -1) {
+        out.push(s.slice(start));
+        break;
+      }
+      const sizeRaw = s.slice(j, sizeEnd).trim();
+      j = sizeEnd + 1;
+      if (s[j] !== '{') {
+        out.push(s.slice(start, start + 1));
+        i = start + 1;
+        continue;
+      }
+      j += 1;
+      const baselineEnd = s.indexOf('}', j);
+      if (baselineEnd === -1) {
+        out.push(s.slice(start));
+        break;
+      }
+      j = baselineEnd + 1;
+      if (!s.startsWith('\\selectfont', j)) {
+        out.push(s.slice(start, start + 1));
+        i = start + 1;
+        continue;
+      }
+      j += '\\selectfont'.length;
+      // Optional whitespace after \selectfont
+      while (j < n && /\s/.test(s[j])) j += 1;
+
+      // Find matching "}" for the opening "{...".
+      let depth = 1;
+      let k = j;
+      while (k < n) {
+        const ch = s[k];
+        if (ch === '{') depth += 1;
+        else if (ch === '}') {
+          depth -= 1;
+          if (depth === 0) break;
+        }
+        k += 1;
+      }
+      if (k >= n) {
+        out.push(s.slice(start));
+        break;
+      }
+
+      const body = s.slice(j, k);
+      const m = sizeRaw.match(/^([0-9]*\.?[0-9]+)\s*(pt)?$/i);
+      if (!m) {
+        out.push(s.slice(start, k + 1));
+        i = k + 1;
+        continue;
+      }
+      const sizePt = m[1];
+      out.push(`<span style="font-size: ${escapeHtml(sizePt)}pt">${body}</span>`);
+      i = k + 1;
+    }
+    return out.join('');
+  };
+
+  content = replaceFontsizeGroups(content);
   content = content
     .replace(/\\section\s*\{([\s\S]*?)\}/g, '<h1>$1</h1>')
     .replace(/\\subsection\s*\{([\s\S]*?)\}/g, '<h2>$1</h2>')
@@ -384,6 +464,7 @@ const latexToHtml = (latex) => {
     .replace(/\\textbf\{([\s\S]*?)\}/g, '<b>$1</b>')
     .replace(/\\textit\{([\s\S]*?)\}/g, '<i>$1</i>')
     .replace(/\\underline\{([\s\S]*?)\}/g, '<u>$1</u>')
+    .replace(/\\texttt\{([\s\S]*?)\}/g, '<span style="font-family: monospace">$1</span>')
     .replace(/\\textsf\{([\s\S]*?)\}/g, '<span style="font-family: sans-serif">$1</span>')
     // Roughly match default LaTeX font sizes (article 10pt)
     .replace(/\\tiny\s+([\s\S]*?)(?=\\|\n|$)/g, '<span style="font-size: 5pt">$1</span>')
@@ -560,6 +641,25 @@ const htmlToLatex = (html) => {
     return `\\${cmd}{${spec.value}}{`;
   };
 
+  const parseCssFontSizeToPt = (raw) => {
+    const s = String(raw || '').trim();
+    if (!s) return null;
+    const m = s.match(/^([0-9]*\.?[0-9]+)\s*(px|pt)?$/i);
+    if (!m) return null;
+    const val = Number(m[1]);
+    if (!Number.isFinite(val)) return null;
+    const unit = (m[2] || 'px').toLowerCase();
+    // CSS px -> pt at 96dpi: 1px = 0.75pt
+    const pt = unit === 'pt' ? val : val * 0.75;
+    if (!Number.isFinite(pt) || pt <= 0) return null;
+    return pt;
+  };
+
+  const formatPt = (n) => {
+    const x = Math.round((Number(n) + Number.EPSILON) * 1000) / 1000;
+    return x.toFixed(3).replace(/\.?0+$/, '');
+  };
+
   const isNotionInlineCodeStyle = (node) => {
     if (!node || !node.style) return false;
     const bgHex = rgbToHex(getStyle(node, 'backgroundColor'));
@@ -658,19 +758,22 @@ const htmlToLatex = (html) => {
       if (align === 'center') { prefix = `\n\\begin{center}\n${prefix}`; suffix = `${suffix}\n\\end{center}\n`; }
       else if (align === 'right') { prefix = `\n\\begin{flushright}\n${prefix}`; suffix = `${suffix}\n\\end{flushright}\n`; }
       else if (align === 'justify') { prefix = `\n\\begin{justify}\n${prefix}`; suffix = `${suffix}\n\\end{justify}\n`; }
-      if (fontFamily && fontFamily.includes('sans')) { prefix += `\\textsf{`; suffix = `}${suffix}`; }
+      if (fontFamily) {
+        const f = String(fontFamily).toLowerCase();
+        if (f.includes('mono')) { prefix += `\\texttt{`; suffix = `}${suffix}`; }
+        else if (f.includes('sans')) { prefix += `\\textsf{`; suffix = `}${suffix}`; }
+      }
       if (fontSize) {
-          const s = parseInt(fontSize);
-          if (s <= 6) prefix += `\\tiny `;
-          else if (s <= 7) prefix += `\\scriptsize `;
-          else if (s <= 8) prefix += `\\footnotesize `;
-          else if (s <= 9) prefix += `\\small `;
-          else if (s >= 24) prefix += `\\Huge `;
-          else if (s >= 20) prefix += `\\huge `;
-          else if (s >= 17) prefix += `\\LARGE `;
-          else if (s >= 14) prefix += `\\Large `;
-          else if (s >= 12) prefix += `\\large `;
-          else prefix += `\\normalsize `;
+        const isHeading = tagName === 'h1' || tagName === 'h2' || tagName === 'h3' || tagName === 'h4';
+        if (!isHeading) {
+          const pt = parseCssFontSizeToPt(fontSize);
+          if (pt != null) {
+            const size = formatPt(pt);
+            const baseline = formatPt(pt * 1.2);
+            prefix += `{\\fontsize{${size}pt}{${baseline}pt}\\selectfont `;
+            suffix = `}${suffix}`;
+          }
+        }
       }
 
       switch (tagName) {
