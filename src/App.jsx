@@ -20,6 +20,7 @@ import {
   latexToHtml,
   htmlToLatex,
   summarizeLatexLog,
+  isWasmLatexEngineConfigured,
   compileWithWasmLatex,
 } from './lib/latex';
 import { sanitizeEditorHtml, maybeSanitizeEditorHtml } from './lib/sanitize';
@@ -1859,6 +1860,79 @@ export default function LiveLatexEditor() {
     if (exporting) return;
     setExporting(true);
 
+    const escapeHtmlText = (text) => {
+      return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    };
+
+    const exportViaBrowserPrint = ({ html, title }) => {
+      try {
+        const win = window.open('', '_blank');
+        if (!win) {
+          // Pop-up blocked: fall back to printing the current page.
+          window.print();
+          return;
+        }
+
+        const stylesheetLinks = Array.from(document.querySelectorAll('link[rel="stylesheet"]'))
+          .map((l) => l.href)
+          .filter(Boolean)
+          .map((href) => `<link rel="stylesheet" href="${href}">`)
+          .join('\n');
+
+        const doc = `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <base href="${escapeHtmlText(document.baseURI)}" />
+    <title>${escapeHtmlText(title || 'document')}</title>
+    ${stylesheetLinks}
+    <style>
+      body { margin: 0; background: white; }
+      .texure-print-shell { min-height: 100vh; background: rgb(241 245 249); padding: 32px; }
+      @media print {
+        .texure-print-shell { background: white !important; padding: 0 !important; }
+        .latex-page { box-shadow: none !important; border: none !important; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="texure-print-shell">
+      <div class="flex justify-center">
+        <div class="latex-page outline-none prose prose-slate max-w-none prose-h1:text-3xl prose-h1:font-bold prose-h1:mt-6 prose-h1:mb-4 prose-h2:text-2xl prose-h2:font-semibold prose-h2:mt-5 prose-h2:mb-3 prose-h3:text-xl prose-h3:font-medium prose-h3:mt-4 prose-h3:mb-2 prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-a:text-blue-600 prose-a:underline prose-img:rounded-md prose-pre:bg-slate-100 prose-pre:text-slate-800 prose-pre:border prose-pre:border-slate-200 latex-render-visual-editor">
+          ${html || ''}
+        </div>
+      </div>
+    </div>
+    <script>
+      window.onload = () => {
+        setTimeout(() => {
+          try { window.focus(); } catch (e) {}
+          try { window.print(); } catch (e) {}
+        }, 150);
+      };
+      window.onafterprint = () => {
+        try { window.close(); } catch (e) {}
+      };
+    </script>
+  </body>
+</html>`;
+
+        win.document.open();
+        win.document.write(doc);
+        win.document.close();
+      } catch (e) {
+        console.warn('Print fallback failed', e);
+        try {
+          window.print();
+        } catch (_) { /* ignore */ }
+      }
+    };
+
     const normalizeLatexForExport = (input) => {
       let out = String(input || '');
 
@@ -1910,6 +1984,13 @@ export default function LiveLatexEditor() {
 
     // ATTEMPT 0: In-browser WASM engine (optional, if enabled)
     if (USE_WASM_LATEX) {
+      // GitHub Pages is static: if no engine is configured, use print-to-PDF fallback.
+      if (!isWasmLatexEngineConfigured()) {
+        setLogText('No in-browser LaTeX engine configured. Using browser print-to-PDF fallback instead.');
+        exportViaBrowserPrint({ html: htmlContent, title: filename.replace(/\.pdf$/i, '') });
+        setExporting(false);
+        return;
+      }
       try {
         const blob = await compileWithWasmLatex(exportLatex);
         if (blob && blob.size > 0) {
@@ -1923,8 +2004,18 @@ export default function LiveLatexEditor() {
         return;
       } catch (e) {
         console.warn('WASM LaTeX compile failed', e);
+        const msg = String(e?.message || e || '');
+        if (/no wasm latex engine configured|configured wasm module not found/i.test(msg)) {
+          setLogText(`${msg}\n\nUsing browser print-to-PDF fallback instead.`);
+          exportViaBrowserPrint({ html: htmlContent, title: filename.replace(/\.pdf$/i, '') });
+          setExporting(false);
+          return;
+        }
         // On static hosting (GitHub Pages), do not fall back to /api services that don’t exist.
-        alert('Export failed: No in-browser LaTeX engine configured.');
+        setCompileStatus('error');
+        setCompileSummary('Compilation failed');
+        setLogText(msg || 'WASM LaTeX compile failed.');
+        alert('Export failed. Check the logs for details.');
         setExporting(false);
         return;
       }

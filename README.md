@@ -65,6 +65,8 @@ npm run build:pages
 npm run verify:pages
 ```
 
+Note: GitHub Pages is static, so `/api/*` compiler proxies are unavailable. If no in-browser WASM engine is configured, the **Export PDF** button falls back to the browser print dialog (“Save as PDF”).
+
 Override the default Pages subpath (defaults to `/Modern-LaTeX-Editor/`):
 
 ```bash

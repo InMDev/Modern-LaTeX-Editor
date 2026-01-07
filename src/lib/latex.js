@@ -727,6 +727,12 @@ const summarizeLatexLog = (log) => {
 };
 
 // Lazy-load and compile LaTeX to PDF in-browser using a WASM engine
+const isWasmLatexEngineConfigured = () => {
+  if (WASM_MODULE) return true;
+  const g = typeof window !== 'undefined' ? window : {};
+  return !!(g.SwiftLaTeX && typeof g.SwiftLaTeX.compile === 'function');
+};
+
 const compileWithWasmLatex = async (latex) => {
   const toBlob = (bytesOrBase64) => {
     if (bytesOrBase64 instanceof Uint8Array || Array.isArray(bytesOrBase64)) {
@@ -786,5 +792,6 @@ export {
   latexToHtml,
   htmlToLatex,
   summarizeLatexLog,
+  isWasmLatexEngineConfigured,
   compileWithWasmLatex,
 };
