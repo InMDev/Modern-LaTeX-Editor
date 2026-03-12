@@ -32,7 +32,7 @@ jobs:
       - name: Build (Vite) for GitHub Pages
         env:
           BASE_PATH: /Modern-LaTeX-Editor/
-          VITE_USE_WASM_LATEX: 'true'
+          VITE_USE_WASM_LATEX: 'false'
           VITE_ENABLE_RTEX: 'false'
           # Optional: configure an in-browser WASM LaTeX engine module for true compilation.
           # VITE_WASM_LATEX_MODULE: /wasm/your-wasm-engine.js
