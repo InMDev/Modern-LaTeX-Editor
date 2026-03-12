@@ -2552,17 +2552,16 @@ export default function LiveLatexEditor() {
           alert('Compilation failed. Check the logs for details.');
         }
       } else {
-        // RTeX disabled: surface LatexOnline failure details instead of generic message
-        setCompileStatus('error');
-        setCompileSummary('Compilation failed');
-        setLogText(latexonlineErrorLog || 'latexonline.cc failed and fallback compiler (RTeX) is disabled. Enable VITE_ENABLE_RTEX or configure in-browser WASM.');
-        setLogOpen(true);
-        alert('Export failed. Check the logs for details.');
+        // RTeX disabled and LatexOnline failed: fall back to browser print-to-PDF.
+        setLogText('Remote LaTeX compilers unavailable. Using browser print-to-PDF fallback.');
+        exportViaBrowserPrint({ html: htmlContent, title: filename.replace(/\.pdf$/i, '') });
+        setExporting(false);
         return;
       }
     } catch (e) {
       console.error(e);
-      alert('Export failed: Could not reach compiler services.');
+      // Compiler services unreachable: fall back to browser print-to-PDF.
+      exportViaBrowserPrint({ html: htmlContent, title: filename.replace(/\.pdf$/i, '') });
     } finally {
       setExporting(false);
     }
