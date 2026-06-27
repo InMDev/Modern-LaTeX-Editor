@@ -9,7 +9,7 @@ import {
   Indent, Outdent, CheckSquare, Minus, Plus,
   ChevronDown, Sigma, Terminal, SquareTerminal, 
   Calculator, ArrowRight, X, Divide, ChevronRight,
-  Superscript, Subscript, FunctionSquare, FileUp, Save, ImagePlus, RotateCw
+  Superscript, Subscript, FunctionSquare, FileUp, Save, ImagePlus, RotateCw, Settings
 } from 'lucide-react';
 import RibbonToolbar from './features/Toolbar/RibbonToolbar';
 import DropdownMenu from './features/Toolbar/DropdownMenu';
@@ -88,6 +88,21 @@ export default function LiveLatexEditor() {
   const [imageOverlayRect, setImageOverlayRect] = useState(null);
   const lintTimer = useRef(null);
   const lintReqId = useRef(0);
+  const [compilerMode, setCompilerMode] = useState(() => {
+    try {
+      return localStorage.getItem('texure.compilerMode') || 'remote';
+    } catch {
+      return 'remote';
+    }
+  });
+  const [localCompilerUrl, setLocalCompilerUrl] = useState(() => {
+    try {
+      return localStorage.getItem('texure.localCompilerUrl') || 'http://localhost:5001';
+    } catch {
+      return 'http://localhost:5001';
+    }
+  });
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const katexLinkRef = useRef(null);
   const katexScriptRef = useRef(null);
   const katexLinkInserted = useRef(false);
@@ -1657,7 +1672,7 @@ export default function LiveLatexEditor() {
 	        
 	        const input = document.createElement(isBlock ? 'textarea' : 'input');
 	        input.value = latex;
-	        input.placeholder = '(eq)';
+	        input.placeholder = 'click me to edit the equation';
 	        input.className = isBlock 
 	          ? "w-full p-2 border-2 border-blue-500 rounded bg-slate-50 font-mono text-sm shadow-inner" 
 	          : "px-2 border-2 border-blue-500 rounded bg-slate-50 font-mono text-sm inline-block shadow-inner mx-1";
@@ -1819,7 +1834,7 @@ export default function LiveLatexEditor() {
     const id = "math-temp-" + Date.now();
     const tag = isBlock ? 'div' : 'span';
     const cls = isBlock ? 'math-block not-prose my-4 text-center cursor-pointer hover:bg-blue-50 transition-colors rounded py-2' : 'math-inline not-prose px-1 cursor-pointer hover:bg-blue-50 transition-colors rounded';
-    const content = initialContent || (isBlock ? '(eq)' : '(eq)');
+    const content = initialContent || 'click me to edit the equation';
     
     const html = `<${tag} id="${id}" class="${cls}" contenteditable="false" data-latex="${encodeURIComponent(initialContent)}">${content}</${tag}>${isBlock ? '<p><br></p>' : '&nbsp;'}`;
     execCmd("insertHTML", html);
@@ -2018,7 +2033,7 @@ export default function LiveLatexEditor() {
   // Compile LaTeX for diagnostics (background)
   const compileForDiagnostics = async (code, currentId) => {
     // Prefer WASM in-browser diagnostics if enabled
-    if (USE_WASM_LATEX) {
+    if (compilerMode === 'wasm' || (compilerMode === 'remote' && USE_WASM_LATEX)) {
       try {
         const blob = await compileWithWasmLatex(code);
         if (currentId !== lintReqId.current) return;
@@ -2038,10 +2053,42 @@ export default function LiveLatexEditor() {
       }
     }
 
+    if (compilerMode === 'local') {
+      try {
+        const url = localCompilerUrl || 'http://localhost:5001';
+        const cleanUrl = url.endsWith('/compile') || url.endsWith('/api/v2') ? url : `${url.replace(/\/+$/, '')}/compile`;
+        const r = await fetchWithTimeout(cleanUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code })
+        }, 12000);
+        const data = await readJSONSafe(r);
+        if (currentId !== lintReqId.current) return; // stale response
+
+        if (r.ok && data?.status === 'success') {
+          setCompileStatus('success');
+          setCompileSummary('Compiled successfully');
+          setLogText('Compiled successfully. No errors reported by local compiler.');
+        } else {
+          setCompileStatus('error');
+          const log = data?.log || data?.error || data?.message || (typeof data === 'string' ? data : '') || 'Local compiler did not return details.';
+          const summary = summarizeLatexLog(log) || 'Compilation failed';
+          setCompileSummary(summary);
+          setLogText(log || 'Unknown error.');
+        }
+      } catch (e) {
+        if (currentId !== lintReqId.current) return;
+        setCompileStatus('error');
+        setCompileSummary('Local compiler offline');
+        setLogText(`Failed to contact local compiler at ${localCompilerUrl}.\n\nEnsure your local compiler helper is running:\n  node scripts/local-compiler.js\n\nError details: ${String(e)}`);
+      }
+      return;
+    }
+
     if (!ENABLE_RTEX) {
       setCompileStatus('idle');
       setCompileSummary('Diagnostics unavailable');
-      setLogText('Compiler diagnostics are disabled or unavailable. Enable VITE_USE_WASM_LATEX or VITE_ENABLE_RTEX.');
+      setLogText('Compiler diagnostics are disabled or unavailable.\n\nTo enable diagnostics, you can:\n1. Choose "Local Compiler" in File -> Settings and start the local helper: node scripts/local-compiler.js\n2. Enable VITE_USE_WASM_LATEX or VITE_ENABLE_RTEX in your .env.local configuration file.');
       return;
     }
     try {
@@ -2206,9 +2253,33 @@ export default function LiveLatexEditor() {
     const code = String(latex || '');
 
     // Prefer in-browser WASM compile when available.
-    if (USE_WASM_LATEX && isWasmLatexEngineConfigured()) {
+    if ((compilerMode === 'wasm' || (compilerMode === 'remote' && USE_WASM_LATEX)) && isWasmLatexEngineConfigured()) {
       const blob = await compileWithWasmLatex(code);
       if (blob && blob.size > 0) return blob;
+    }
+
+    if (compilerMode === 'local') {
+      const url = localCompilerUrl || 'http://localhost:5001';
+      const cleanUrl = url.endsWith('/compile') || url.endsWith('/api/v2') ? url : `${url.replace(/\/+$/, '')}/compile`;
+      const r = await fetchWithTimeout(
+        cleanUrl,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code }),
+        },
+        timeoutMs
+      );
+      const data = await readJSONSafe(r);
+      if (data?.status === 'success' && data?.result) {
+        const byteChars = atob(data.result);
+        const byteNumbers = new Array(byteChars.length);
+        for (let i = 0; i < byteChars.length; i++) byteNumbers[i] = byteChars.charCodeAt(i);
+        const byteArray = new Uint8Array(byteNumbers);
+        return new Blob([byteArray], { type: 'application/pdf' });
+      }
+      const log = data?.log || data?.error || data?.message || 'Local compiler returned an error.';
+      throw new Error(`Local compiler failed:\n\n${log}`);
     }
 
     // Attempt 1: latexonline.cc via proxy
@@ -2232,7 +2303,7 @@ export default function LiveLatexEditor() {
     if (!ENABLE_RTEX) {
       throw new Error(
         latexonlineLog ||
-          'latexonline.cc failed and fallback compiler (RTeX) is disabled. Enable VITE_ENABLE_RTEX or configure VITE_USE_WASM_LATEX.'
+          'latexonline.cc failed and fallback compiler (RTeX) is disabled. You can configure a local compiler in File -> Settings, enable VITE_ENABLE_RTEX, or configure in-browser WASM.'
       );
     }
 
@@ -2470,7 +2541,7 @@ export default function LiveLatexEditor() {
     };
 
     // ATTEMPT 0: In-browser WASM engine (optional, if enabled)
-    if (USE_WASM_LATEX) {
+    if (compilerMode === 'wasm' || (compilerMode === 'remote' && USE_WASM_LATEX)) {
       // GitHub Pages is static: if no engine is configured, use print-to-PDF fallback.
       if (!isWasmLatexEngineConfigured()) {
         setLogText('No in-browser LaTeX engine configured. Using browser print-to-PDF fallback instead.');
@@ -2508,7 +2579,30 @@ export default function LiveLatexEditor() {
       }
     }
 
-    // ATTEMPT 1: latexonline.cc via proxy
+    if (compilerMode === 'local') {
+      try {
+        const blob = await compileLatexToPdfBlobForPreview(exportLatex);
+        if (blob && blob.size > 0) {
+          triggerDownload(blob);
+          setExporting(false);
+          return;
+        }
+        throw new Error('Local compiler did not return a PDF.');
+      } catch (e) {
+        console.error('Local export compile failed', e);
+        setCompileStatus('error');
+        setCompileSummary('Compilation failed');
+        const msg = String(e?.message || e || '');
+        setLogText(msg);
+        setLogOpen(true);
+        alert('Export failed. Check the logs for details.');
+      } finally {
+        setExporting(false);
+      }
+      return;
+    }
+
+    // ATTEMPT 1: latexonline.cc via proxy (remote mode)
     let latexonlineErrorLog = null;
     try {
       const res = await fetchWithTimeout(`/api/latexonline/compile?text=${encodeURIComponent(exportLatex)}`, { method: 'GET' }, 15000);
@@ -2555,7 +2649,7 @@ export default function LiveLatexEditor() {
         // RTeX disabled: surface LatexOnline failure details instead of generic message
         setCompileStatus('error');
         setCompileSummary('Compilation failed');
-        setLogText(latexonlineErrorLog || 'latexonline.cc failed and fallback compiler (RTeX) is disabled. Enable VITE_ENABLE_RTEX or configure in-browser WASM.');
+        setLogText(latexonlineErrorLog || 'latexonline.cc failed and fallback compiler (RTeX) is disabled. You can run your own local compiler (select "Local Compiler" in File -> Settings) or enable VITE_ENABLE_RTEX/configure in-browser WASM in your .env.local file.');
         setLogOpen(true);
         alert('Export failed. Check the logs for details.');
         return;
@@ -2633,6 +2727,13 @@ export default function LiveLatexEditor() {
                           : compileSummary || 'Show compiler log',
                     icon: FileText,
                     onSelect: showCompileLog,
+                  },
+                  {
+                    key: 'settings',
+                    label: 'Settings…',
+                    subtle: 'Configure LaTeX compiler',
+                    icon: Settings,
+                    onSelect: () => setSettingsOpen(true),
                   },
                 ]}
               />
@@ -3192,6 +3293,118 @@ export default function LiveLatexEditor() {
             >
               Close
             </button>
+          </div>
+        </div>
+      </div>
+    )}
+    {settingsOpen && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+        <div className="w-[92vw] max-w-md bg-white rounded-lg shadow-xl border border-slate-200 flex flex-col">
+          <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-200">
+            <div className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+              <Settings size={16} /> Compiler Settings
+            </div>
+            <button
+              className="p-1 rounded hover:bg-slate-100"
+              onClick={() => setSettingsOpen(false)}
+              title="Close"
+            >
+              <X size={16} />
+            </button>
+          </div>
+          <div className="p-4 flex flex-col gap-4">
+            <div>
+              <label className="text-xs font-semibold text-slate-600 block mb-2">Compilation Engine</label>
+              <div className="flex flex-col gap-2">
+                <label className="flex items-start gap-2 text-sm text-slate-700 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="compilerMode"
+                    value="remote"
+                    checked={compilerMode === 'remote'}
+                    onChange={() => {
+                      setCompilerMode('remote');
+                      try { localStorage.setItem('texure.compilerMode', 'remote'); } catch (e) {}
+                    }}
+                    className="mt-0.5"
+                  />
+                  <div>
+                    <span className="font-medium text-slate-800">Remote Server (latexonline.cc / RTEX)</span>
+                    <p className="text-xs text-slate-500 mt-0.5">Use public compilers. High compatibility, but requires internet and subject to server availability/throttling.</p>
+                  </div>
+                </label>
+
+                <label className="flex items-start gap-2 text-sm text-slate-700 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="compilerMode"
+                    value="local"
+                    checked={compilerMode === 'local'}
+                    onChange={() => {
+                      setCompilerMode('local');
+                      try { localStorage.setItem('texure.compilerMode', 'local'); } catch (e) {}
+                    }}
+                    className="mt-0.5"
+                  />
+                  <div>
+                    <span className="font-medium text-slate-800">Local Compiler (localhost)</span>
+                    <p className="text-xs text-slate-500 mt-0.5">Use your machine's local TeX distribution (MacTeX/TeX Live/MiKTeX) via a local helper server.</p>
+                  </div>
+                </label>
+
+                <label className="flex items-start gap-2 text-sm text-slate-700 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="compilerMode"
+                    value="wasm"
+                    checked={compilerMode === 'wasm'}
+                    onChange={() => {
+                      setCompilerMode('wasm');
+                      try { localStorage.setItem('texure.compilerMode', 'wasm'); } catch (e) {}
+                    }}
+                    className="mt-0.5"
+                  />
+                  <div>
+                    <span className="font-medium text-slate-800">In-Browser WASM (Experimental)</span>
+                    <p className="text-xs text-slate-500 mt-0.5">Compile in-browser. Requires configuring a WASM TeX engine package.</p>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            {compilerMode === 'local' && (
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-md flex flex-col gap-2">
+                <label className="text-xs font-semibold text-slate-600">Local Helper Server URL</label>
+                <input
+                  type="text"
+                  value={localCompilerUrl}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setLocalCompilerUrl(val);
+                    try { localStorage.setItem('texure.localCompilerUrl', val); } catch (err) {}
+                  }}
+                  placeholder="http://localhost:5001"
+                  className="px-3 py-1.5 text-xs rounded border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-200 font-mono w-full"
+                />
+                <div className="text-[10px] leading-relaxed text-slate-500 mt-1">
+                  💡 <strong>Setup Instructions:</strong>
+                  <ol className="list-decimal list-inside mt-1 flex flex-col gap-0.5">
+                    <li>Ensure you have Node.js and a LaTeX distribution (like TeX Live) installed.</li>
+                    <li>Run the helper server in your terminal:<br/><code className="bg-slate-200 px-1 py-0.5 rounded font-mono text-[9px]">node scripts/local-compiler.js</code></li>
+                    <li>Make sure the server URL matches the input field above.</li>
+                  </ol>
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end pt-2">
+              <button
+                className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 text-xs font-medium"
+                onClick={() => setSettingsOpen(false)}
+              >
+                Done
+              </button>
+            </div>
           </div>
         </div>
       </div>

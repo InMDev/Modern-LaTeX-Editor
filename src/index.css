@@ -5,7 +5,7 @@
 @tailwind utilities;
 
 @layer components {
-    /* Notion-like inline code */
+/* Notion-like inline code */
     .texure-inline-code {
         display: inline-block;
         padding: 0.08em 0.35em;
@@ -27,13 +27,123 @@
     }
 }
 
+/* Accurate LaTeX Layout Styles for Visual Editor */
 .latex-render-visual-editor {
-    /* Closer to default LaTeX article (10pt Computer Modern-ish) */
-    font-family: 'KaTeX_Main', 'Latin Modern Roman', 'Computer Modern', 'Source Serif Pro', serif;
-    font-size: 10pt;
-    line-height: 1.2;
-    font-kerning: normal;
-    font-variant-ligatures: common-ligatures;
+    font-family: 'KaTeX_Main', 'Latin Modern Roman', 'Computer Modern', 'Source Serif Pro', serif !important;
+    font-size: 10pt !important;
+    line-height: 1.25 !important;
+    color: #000000 !important;
+    text-shadow: none !important;
+}
+
+/* Paragraph spacing and indents */
+.latex-render-visual-editor p {
+    font-family: 'KaTeX_Main', 'Latin Modern Roman', 'Computer Modern', 'Source Serif Pro', serif !important;
+    font-size: 10pt !important;
+    line-height: 1.25 !important;
+    text-align: justify !important;
+    text-indent: 1.5em !important;
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+}
+
+/* First paragraph of document or after structural blocks should not be indented */
+.latex-render-visual-editor p:first-of-type,
+.latex-render-visual-editor h1 + p,
+.latex-render-visual-editor h2 + p,
+.latex-render-visual-editor h3 + p,
+.latex-render-visual-editor h4 + p,
+.latex-render-visual-editor div + p,
+.latex-render-visual-editor blockquote + p,
+.latex-render-visual-editor .texure-codeblock + p,
+.latex-render-visual-editor .math-block + p {
+    text-indent: 0 !important;
+}
+
+/* Sections and Headings (LaTeX Standard Article sizes) */
+.latex-render-visual-editor h1 {
+    font-family: 'KaTeX_Main', 'Latin Modern Roman', 'Computer Modern', 'Source Serif Pro', serif !important;
+    font-size: 17.28pt !important; /* LaTeX \LARGE */
+    font-weight: bold !important;
+    color: #000000 !important;
+    text-align: left !important;
+    margin-top: 1.8em !important;
+    margin-bottom: 0.6em !important;
+    text-indent: 0 !important;
+}
+
+.latex-render-visual-editor h2 {
+    font-family: 'KaTeX_Main', 'Latin Modern Roman', 'Computer Modern', 'Source Serif Pro', serif !important;
+    font-size: 14.4pt !important; /* LaTeX \Large */
+    font-weight: bold !important;
+    color: #000000 !important;
+    text-align: left !important;
+    margin-top: 1.5em !important;
+    margin-bottom: 0.5em !important;
+    text-indent: 0 !important;
+}
+
+.latex-render-visual-editor h3 {
+    font-family: 'KaTeX_Main', 'Latin Modern Roman', 'Computer Modern', 'Source Serif Pro', serif !important;
+    font-size: 12pt !important; /* LaTeX \large */
+    font-weight: bold !important;
+    color: #000000 !important;
+    text-align: left !important;
+    margin-top: 1.2em !important;
+    margin-bottom: 0.4em !important;
+    text-indent: 0 !important;
+}
+
+.latex-render-visual-editor h4 {
+    font-family: 'KaTeX_Main', 'Latin Modern Roman', 'Computer Modern', 'Source Serif Pro', serif !important;
+    font-size: 10pt !important; /* LaTeX \normalsize */
+    font-weight: bold !important;
+    font-style: italic !important;
+    color: #000000 !important;
+    text-align: left !important;
+    margin-top: 1em !important;
+    margin-bottom: 0.3em !important;
+    text-indent: 0 !important;
+}
+
+/* Quote/Blockquote environment */
+.latex-render-visual-editor blockquote {
+    font-family: 'KaTeX_Main', 'Latin Modern Roman', 'Computer Modern', 'Source Serif Pro', serif !important;
+    font-size: 9pt !important; /* LaTeX \small */
+    line-height: 1.25 !important;
+    margin-left: 2.5em !important;
+    margin-right: 2.5em !important;
+    margin-top: 1em !important;
+    margin-bottom: 1em !important;
+    border-left: none !important; /* Override web-style left border */
+    padding-left: 0 !important;
+    color: #000000 !important;
+}
+
+.latex-render-visual-editor blockquote p {
+    text-indent: 0 !important;
+    font-size: 9pt !important;
+}
+
+/* Lists environment */
+.latex-render-visual-editor ul,
+.latex-render-visual-editor ol {
+    margin-top: 0.8em !important;
+    margin-bottom: 0.8em !important;
+    padding-left: 2.5em !important;
+}
+
+.latex-render-visual-editor li {
+    font-family: 'KaTeX_Main', 'Latin Modern Roman', 'Computer Modern', 'Source Serif Pro', serif !important;
+    font-size: 10pt !important;
+    line-height: 1.25 !important;
+    margin-top: 0.2em !important;
+    margin-bottom: 0.2em !important;
+    color: #000000 !important;
+}
+
+.latex-render-visual-editor li p {
+    text-indent: 0 !important;
 }
 
 .latex-render-visual-editor .math-inline,
@@ -47,12 +157,13 @@
 }
 
 .latex-page {
-    width: min(8.5in, 100%);
-    min-height: 11in;
-    background: white;
-    border: 1px solid rgb(226 232 240);
-    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.06);
-    padding: 1in;
+    width: 8.5in !important;
+    min-height: 11in !important;
+    background: #ffffff !important;
+    border: 1px solid #e2e8f0 !important;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05) !important;
+    padding: 1in !important;
+    box-sizing: border-box !important;
 }
 
 /* Ensure KaTeX layer displays correctly even inside .prose */
